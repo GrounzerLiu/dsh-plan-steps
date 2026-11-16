@@ -22,6 +22,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'plan-steps'
 export const inject = ['tools']
@@ -32,13 +33,12 @@ const SUB_STEP_MARK = '​'
 /** The shipped task list's snapshot event: one whole-list write per update. */
 const TODO_WRITE = 'todo/write'
 
-/**
- * Deployment escape hatches, read once when the plugin activates. `0` turns a
- * mechanism off; anything else (including unset) leaves it on.
- */
-const guardEnabled = process.env.PLAN_STEPS_GUARD !== '0'
-const holdEnabled = process.env.PLAN_STEPS_HOLD !== '0'
-const restoreEnabled = process.env.PLAN_STEPS_RESTORE !== '0'
+/** The switches this plugin exposes on its row in the plugin page. */
+export const Config = Schema.object({
+  guardUnsignedCompletions: Schema.boolean().default(true),
+  holdOpenList: Schema.boolean().default(true),
+  restorePanel: Schema.boolean().default(true),
+})
 
 /** Turns already held once, so a model that will not update its list still ends. */
 const heldTurn = new WeakMap()
@@ -516,7 +516,12 @@ const DESCRIPTION =
   'every sub-step is done. Cite the item by its step_id (preferred), by name, or by 1-based position. A plan ' +
   'write that marks a new item completed without a complete_step sign-off is refused.'
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  // Settings come from the plugin row; an unset key keeps the mechanism on.
+  const guardEnabled = config.guardUnsignedCompletions !== false
+  const holdEnabled = config.holdOpenList !== false
+  const restoreEnabled = config.restorePanel !== false
+
   // The plan writer. The shipped `todo_write` stores a flat name list; a
   // two-level plan needs a phase header, ordered sub-steps and stable step ids,
   // so this tool owns the structured form and writes the same `todo/write`

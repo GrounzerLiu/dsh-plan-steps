@@ -116,15 +116,18 @@ the boot graph.
 
 ## Configure
 
-Environment variables, read when the plugin activates:
+The three switches live on the **plugin page**: open the `plan-steps` row in the
+Plugin Manager and edit its settings.
 
-| Variable | Default | Effect |
+| Switch | Default | Effect |
 | --- | --- | --- |
-| `PLAN_STEPS_GUARD` | on | `0` stops the completion guard |
-| `PLAN_STEPS_HOLD` | on | `0` stops the turn-stopping hold |
-| `PLAN_STEPS_RESTORE` | on | `0` stops the panel snapshot rebuild at the start of a turn |
+| Refuse unsigned completions | on | off: `plan_write` / `todo_write` may mark an item completed itself |
+| Pull a turn back while items are open | on | off: a turn may end with the list still open |
+| Rebuild the panel snapshot each turn | on | off: after `turn/start` the panel waits for the model's next write |
 
-The tools stay registered either way.
+The same fields can be set under the row's `config` in the profile's
+`cordis.patch.yml` as deployment defaults; the plugin page wins. The tools stay
+registered either way.
 
 ## Uninstall
 

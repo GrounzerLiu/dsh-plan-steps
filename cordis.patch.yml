@@ -3,3 +3,5 @@
       name: dsh-plan-steps
       config:
         guardUnsignedCompletions: true
+        holdOpenList: true
+        restorePanel: true
