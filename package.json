@@ -1,13 +1,14 @@
 {
   "name": "dsh-task-steps",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Host-owned task list steps: complete_step signs one item off and advances the list.",
   "exports": {
     ".": "./index.js",
     "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
+    "./icon": "./icon.svg",
+    "./client": "./client.js"
   },
   "files": [
     "index.js",
@@ -16,11 +17,16 @@
     "docs",
     "test",
     "README.md",
-    "icon.svg"
+    "icon.svg",
+    "client.js"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
     }
   }
 }
