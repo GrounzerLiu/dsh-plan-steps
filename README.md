@@ -1,4 +1,4 @@
-# dsh-task-steps
+# dsh-plan-steps
 
 Host-owned task-list steps for DeepSeek Harness: `complete_step` signs one item
 off and the host advances the list, a guard refuses an unsigned completion, and a
@@ -62,10 +62,10 @@ Local directory, no build step, no dependencies:
 ```sh
 # in the Harness UI: Plugins > Add plugin > pick this directory
 # or, with the manager tool:
-#   install_bundle(target: "D:/dsh-plugins/dsh-task-steps")
+#   install_bundle(target: "D:/dsh-plugins/dsh-plan-steps")
 ```
 
-The bundle inserts one row, `include:task-steps`. Two tools join the model's
+The bundle inserts one row, `include:plan-steps`. Two tools join the model's
 toolset: `complete_step` and `wait_for_user`.
 
 ## Configure
@@ -82,7 +82,7 @@ The tools stay registered either way.
 
 ## Uninstall
 
-`remove_bundle` in the Plugin Manager, or disable the `task-steps` row. Nothing
+`remove_bundle` in the Plugin Manager, or disable the `plan-steps` row. Nothing
 is written outside the plugin directory, so removal needs no cleanup. Task lists
 written before removal stay in the session log and remain readable by the shipped
 todo tool.
@@ -98,7 +98,7 @@ node --test test/
 **The panel goes blank at the start of a turn.** The shipped task projection
 resets on `turn/start`. This plugin writes the open list back on the next
 macrotask, and the first step of the turn restores it again if that write fails.
-A failed early write logs one warning per session (`task-steps: could not
+A failed early write logs one warning per session (`plan-steps: could not
 restore the task panel at turn start`), so a host change shows up in the log
 instead of as a silent blank panel.
 

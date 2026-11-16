@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-task-steps',
+  id: 'dsh-plan-steps',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -317,7 +317,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
-        document.documentElement.dataset.taskSteps = 'applied'
+        document.documentElement.dataset.planSteps = 'applied'
         // The shipped panel is a list entry on conversation.input.dock with id
         // 'todo'; claiming the same id at a lower priority replaces it.
         ctx.slots.inject('conversation.input.dock', () => {
@@ -331,10 +331,10 @@ window.__ModuleLoader__.load({
               },
               TaskPanel,
             )
-            document.documentElement.dataset.taskSteps = 'registered'
+            document.documentElement.dataset.planSteps = 'registered'
             return dispose
           } catch (error) {
-            document.documentElement.dataset.taskSteps = 'failed: ' + String(error && error.message)
+            document.documentElement.dataset.planSteps = 'failed: ' + String(error && error.message)
             return undefined
           }
         })

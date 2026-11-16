@@ -18,12 +18,12 @@
  * registry is built on, so this hands the registry a plain object whose
  * parameters and output already use standard JSON Schema.
  *
- * @module dsh-task-steps
+ * @module dsh-plan-steps
  */
 
 import { randomUUID } from 'node:crypto'
 
-export const name = 'task-steps'
+export const name = 'plan-steps'
 export const inject = ['tools']
 
 /** Marks a level-1 sub-step inside content, which every projection keeps. */
@@ -101,7 +101,7 @@ function toItem(todo) {
  */
 function parseTodos(value) {
   if (value === null || value === undefined) return null
-  if (!Array.isArray(value)) throw new Error('task-steps: a stored task list must be an array or null')
+  if (!Array.isArray(value)) throw new Error('plan-steps: a stored task list must be an array or null')
   return value.map(toItem)
 }
 
@@ -804,7 +804,7 @@ export function apply(ctx) {
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     try {
       const pending = projectionCtx.sessionProjections.register({
-        key: 'task-steps/todos',
+        key: 'plan-steps/todos',
         stateSchema: { parse: parseTodos },
         init: () => null,
         apply: (state, event) =>
@@ -940,7 +940,7 @@ export function apply(ctx) {
         // and a silent fallback would hide a host change.
         if (!restoreWarned.has(session)) {
           restoreWarned.add(session)
-          ctx.logger?.warn?.('task-steps: could not restore the task panel at turn start; falling back to the pre-step restore', error)
+          ctx.logger?.warn?.('plan-steps: could not restore the task panel at turn start; falling back to the pre-step restore', error)
         }
       }
     }, 0)

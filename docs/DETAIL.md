@@ -153,7 +153,7 @@ write; nothing drifts permanently.
   completion is checked name by name, so renaming *and* closing in one write is
   still refused.
 - The list is read through the plugin's own `sessionProjections` unit
-  (`task-steps/todos`); `deriveMessages()` is still read directly for the
+  (`plan-steps/todos`); `deriveMessages()` is still read directly for the
   visible-window check, and a host without the projection seam falls back to
   `Session.snapshotEvents()`, which the core deprecates.
 - The state block is injected at most once per visible window; when a step is

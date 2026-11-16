@@ -1,5 +1,5 @@
 - insert:
-    - id: task-steps
-      name: dsh-task-steps
+    - id: plan-steps
+      name: dsh-plan-steps
       config:
         guardUnsignedCompletions: true
