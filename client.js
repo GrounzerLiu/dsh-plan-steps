@@ -15,6 +15,26 @@ window.__ModuleLoader__.load({
       radius: 'var(--dsw-radius-lg, 12px)',
     }
 
+    /**
+     * Glass themes (dsh-catppuccin and siblings) expose their look as body
+     * variables and mark the document with `data-dsh-glass`; they only blur the
+     * surfaces listed in their own seam table, which does not know this panel.
+     * Reading the same variables keeps the panel visually identical without
+     * patching the theme.
+     * @returns extra styles for the panel root, empty when no glass theme is on.
+     */
+    function glassSurface() {
+      if (typeof document === 'undefined' || !document.documentElement.hasAttribute('data-dsh-glass')) return {}
+      const blur = 'blur(var(--dsh-glass-blur, 14px))'
+      return {
+        background: 'var(--dsh-glass-card, var(--dsw-specific-menu, transparent))',
+        border: '1px solid var(--dsh-glass-rim-soft, transparent)',
+        backdropFilter: blur,
+        WebkitBackdropFilter: blur,
+        borderRadius: '14px',
+      }
+    }
+
     // Material Symbols (google/material-design-icons, Apache-2.0), inlined as
     // path data so the panel renders offline.
     const ICONS = {
@@ -109,6 +129,16 @@ window.__ModuleLoader__.load({
       // inside the content as a zero-width marker and is stripped here.
       const todos = (useProjection('todos') ?? []).map(readItem)
       const [open, setOpen] = React.useState(false)
+      // A glass theme can be switched on while the panel is mounted.
+      const [glass, setGlass] = React.useState(() => glassSurface())
+      React.useEffect(() => {
+        const observer = new MutationObserver(() => setGlass(glassSurface()))
+        observer.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['data-dsh-glass', 'data-dsh-glass-float'],
+        })
+        return () => observer.disconnect()
+      }, [])
       if (todos.length === 0) return null
       const { done, total, index, current } = positionOf(todos)
       const label = '计划 · 第 ' + String(index) + ' / ' + String(total) + ' 步'
@@ -127,6 +157,7 @@ window.__ModuleLoader__.load({
             color: TOKENS.title,
             fontSize: '13px',
             overflow: 'hidden',
+            ...glass,
           },
         },
         h(
