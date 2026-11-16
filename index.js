@@ -740,7 +740,10 @@ export function apply(ctx, config = {}) {
           ? 'Every step in the task list is now complete. Do not open new work under this plan.'
           : `The host advanced the list; the next step is ${advanced.indexOf(next) + 1} ${JSON.stringify(next.content)}.`
       return {
-        message: `Step ${JSON.stringify(target.content)} done: ${said} ${tail} (${remaining} open)`,
+        // The total is stated, not inferred: a two-level list can have a phase
+        // current *before* its completed sub-steps, so "index - 1 + open" is not
+        // the list length and a reader must not compute it.
+        message: `Step ${JSON.stringify(target.content)} done: ${said} ${tail} (${remaining} open of ${advanced.length})`,
       }
     },
     presentCall: (args) => ({

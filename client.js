@@ -280,6 +280,13 @@ window.__ModuleLoader__.load({
       const next = /the next step is (\d+) "([^"]*)"/.exec(text)
       if (next === null) return null
       const index = Number(next[1])
+      // Prefer the stated total: in a two-level list the current phase can sit
+      // before its own completed sub-steps, so "index - 1 + open" undercounts.
+      const stated = /\((\d+) open of (\d+)\)/.exec(text)
+      if (stated !== null) {
+        const openCount = Number(stated[1])
+        return { index, current: next[2], open: openCount, total: Number(stated[2]), done: false }
+      }
       const open = /\((\d+) open\)/.exec(text)
       const openCount = open === null ? 0 : Number(open[1])
       return { index, current: next[2], open: openCount, total: index - 1 + openCount, done: false }
