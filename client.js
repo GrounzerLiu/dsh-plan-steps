@@ -414,12 +414,11 @@ window.__ModuleLoader__.load({
     }
 
     /** The same switches as a section on the bundle's own page. */
-    function DetailSection({ subject, form, label }) {
+    function DetailSection({ form, label }) {
       const snapshot = React.useSyncExternalStore(
         (listener) => form.subscribe(listener),
         () => form.getSnapshot(),
       )
-      if (subject === undefined || subject.kind !== 'bundle' || subject.pkg?.name !== 'dsh-plan-steps') return null
       const value = snapshot?.value ?? {}
       return h(Toggles, {
         value,
@@ -460,18 +459,17 @@ window.__ModuleLoader__.load({
           if (form !== undefined && form !== null) {
             ctx.effect(
               () =>
-                ctx.slots.inject('plugins.detail.section', () =>
+                ctx.slots.inject('plugins.bundle.config', () =>
                   ctx.slots.register(
                     {
-                      name: 'plugins.detail.section',
-                      id: 'plan-steps',
-                      order: 60,
+                      name: 'plugins.bundle.config',
+                      key: 'dsh-plan-steps',
                       inject: () => ({ form, label: (key) => t(key) }),
                     },
                     DetailSection,
                   ),
                 ),
-              'plan-steps: bundle section',
+              'plan-steps: bundle config',
             )
           }
         } catch (error) {
