@@ -166,3 +166,15 @@ test('continuity allows a first write and an additive replan', () => {
   const previous = [phase('a', 'in_progress'), phase('b', 'pending')]
   assert.equal(continuityProblem(previous, [phase('a', 'in_progress'), phase('new', 'pending'), phase('b', 'pending')]), null)
 })
+
+test('a snapshot keeps the sub-step marker through a round trip', () => {
+  const { toItem, snapshotOf } = __testing
+  const parsed = [phase('p', 'pending'), sub('s1', 'pending', 'id1')]
+  const payload = snapshotOf(parsed)
+  assert.ok(payload[1].content.startsWith('​'), 'the marker rides in the content')
+  assert.equal(payload[1].level, 1)
+  const back = toItem(payload[1])
+  assert.equal(back.level, 1)
+  assert.equal(back.content, 's1')
+  assert.equal(back.stepId, 'id1')
+})

@@ -30,6 +30,22 @@ export const inject = ['tools']
 /** Marks a level-1 sub-step inside content, which every projection keeps. */
 const SUB_STEP_MARK = '​'
 
+/**
+ * Turn parsed items back into the snapshot payload, restoring the sub-step
+ * marker that `toItem` strips: every reader of the event, the panel included,
+ * only sees what the payload carries.
+ * @param items - the parsed list.
+ * @returns the payload for a `todo/write` append.
+ */
+function snapshotOf(items) {
+  return items.map((item) => ({
+    content: item.level === 1 ? SUB_STEP_MARK + item.content : item.content,
+    status: item.status,
+    ...(item.level === 1 ? { level: 1 } : {}),
+    ...(item.stepId === undefined ? {} : { step_id: item.stepId }),
+  }))
+}
+
 /** The shipped task list's snapshot event: one whole-list write per update. */
 const TODO_WRITE = 'todo/write'
 
@@ -606,14 +622,7 @@ export function apply(ctx, config = {}) {
       if (problem !== null) throw new Error(problem)
       const continuity = continuityProblem(listOf(agent.session), items)
       if (continuity !== null) throw new Error(continuity)
-      agent.session.append(TODO_WRITE, {
-        todos: items.map((item) => ({
-          content: item.level === 1 ? SUB_STEP_MARK + item.content : item.content,
-          status: item.status,
-          ...(item.level === 1 ? { level: 1 } : {}),
-          ...(item.stepId === undefined ? {} : { step_id: item.stepId }),
-        })),
-      })
+      agent.session.append(TODO_WRITE, { todos: snapshotOf(items) })
       const done = items.filter((item) => item.status === 'completed').length
       const active = items.filter((item) => item.status === 'in_progress').length
       const pending = items.length - done - active
@@ -723,7 +732,7 @@ export function apply(ctx, config = {}) {
       const advanced = advance(items, at)
       // Persist the advance as the same snapshot the shipped tool writes, so
       // the task panel and every log reader see the step close here and now.
-      agent.session.append(TODO_WRITE, { todos: advanced })
+      agent.session.append(TODO_WRITE, { todos: snapshotOf(advanced) })
       const next = currentItem(advanced)
       const remaining = advanced.filter((item) => item.status !== 'completed').length
       const tail =
@@ -907,7 +916,7 @@ export function apply(ctx, config = {}) {
     if (restoreEnabled && restored !== payload.turn) {
       restoredTurns.set(session, payload.turn)
       try {
-        session.append(TODO_WRITE, { todos: items })
+        session.append(TODO_WRITE, { todos: snapshotOf(items) })
       } catch {
         // A read-only or closing session keeps its own behaviour.
       }
@@ -939,7 +948,7 @@ export function apply(ctx, config = {}) {
       if (items === null || items.length === 0) return
       if (!items.some((item) => item.status !== 'completed')) return
       try {
-        session.append(TODO_WRITE, { todos: items })
+        session.append(TODO_WRITE, { todos: snapshotOf(items) })
         restoredTurns.set(session, turn)
       } catch (error) {
         // The pre-step restore still runs for this turn, so the panel is not
@@ -955,4 +964,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem }
