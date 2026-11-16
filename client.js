@@ -314,9 +314,103 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** The settings card shown on the plugin page. */
+    const SETTINGS_NS = 'settings.planSteps'
+    const SETTINGS_TEXT = {
+      zh: { title: '计划步骤', guard: '拒绝未签核的完成', hold: '列表开着时拉回一轮', restore: '每轮重建面板快照' },
+      en: { title: 'Plan steps', guard: 'Refuse unsigned completions', hold: 'Pull a turn back while items are open', restore: 'Rebuild the panel snapshot each turn' },
+    }
+
+    function SettingsCard({ form, view, label }) {
+      // The owner hands the page an already-derived model: { state, mutate }.
+      if (view !== 'page' || form === undefined) return null
+      const state = form.state ?? {}
+      const value = state.value ?? {}
+      const writable = state.writable !== false
+      const rows = [
+        ['guardUnsignedCompletions', 'guard'],
+        ['holdOpenList', 'hold'],
+        ['restorePanel', 'restore'],
+      ]
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+        rows.map(([key, dictKey]) => {
+          const on = value[key] !== false
+          return h(
+            'div',
+            { key, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
+            h('span', { style: { fontSize: '13px' } }, label === undefined ? dictKey : label(dictKey)),
+            h(
+              'button',
+              {
+                type: 'button',
+                role: 'switch',
+                'aria-checked': on,
+                disabled: writable === false,
+                onClick: () => void form.mutate([{ op: 'set', path: [key], value: !on }], state.revision),
+                style: {
+                  width: '36px',
+                  height: '20px',
+                  flex: 'none',
+                  borderRadius: '999px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: on ? 'var(--dsw-alias-state-business-primary, #4c8dff)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,0.4))',
+                  position: 'relative',
+                  transition: 'background 120ms ease',
+                },
+              },
+              h('span', {
+                style: {
+                  position: 'absolute',
+                  top: '2px',
+                  left: on ? '18px' : '2px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  background: '#fff',
+                  transition: 'left 120ms ease',
+                },
+              }),
+            ),
+          )
+        }),
+      )
+    }
+
     return {
-      inject: ['slots'],
+      inject: ['slots', 'configForms', 'locale'],
       apply(ctx) {
+        // The plugin page shows a card a plugin contributes; a Config alone only
+        // validates and persists. Register the card while the Host serves this
+        // entry, and drive it through the same form the Host projects.
+        try {
+          const t = ctx.locale === undefined ? (key) => SETTINGS_TEXT.zh[key] : ctx.locale.bind(SETTINGS_NS)
+          if (ctx.locale !== undefined) ctx.locale.register(SETTINGS_NS, SETTINGS_TEXT)
+          // The row's own page: plugins.row.config is keyed by
+          // "<package name>#<row id>" and the owner hands the page its form.
+          ctx.effect(
+            () =>
+              ctx.slots.inject('plugins.row.config', () => {
+                document.documentElement.dataset.planCard = 'registered'
+                return ctx.slots.register(
+                  {
+                    name: 'plugins.row.config',
+                    key: 'dsh-plan-steps#plan-steps',
+                    label: () => t('title'),
+                    inject: () => ({ label: (key) => t(key) }),
+                  },
+                  SettingsCard,
+                )
+              }),
+            'plan-steps: row settings',
+          )
+        } catch (error) {
+          document.documentElement.dataset.planCard = 'error: ' + String(error && error.message)
+          console.warn('[plan-steps] settings card unavailable', error)
+        }
+
         document.documentElement.dataset.planSteps = 'applied'
         // The shipped panel is a list entry on conversation.input.dock with id
         // 'todo'; claiming the same id at a lower priority replaces it.

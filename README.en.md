@@ -116,8 +116,8 @@ the boot graph.
 
 ## Configure
 
-The three switches live on the **plugin page**: open the `plan-steps` row in the
-Plugin Manager and edit its settings.
+The three switches live on the **plugin's own page**: find the `plan-steps` row in
+the Plugin Manager and press Configure.
 
 | Switch | Default | Effect |
 | --- | --- | --- |

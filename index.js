@@ -35,9 +35,11 @@ const TODO_WRITE = 'todo/write'
 
 /** The switches this plugin exposes on its row in the plugin page. */
 export const Config = Schema.object({
-  guardUnsignedCompletions: Schema.boolean().default(true),
-  holdOpenList: Schema.boolean().default(true),
-  restorePanel: Schema.boolean().default(true),
+  // `.volatile()` is what makes a field editable from the plugin page without a
+  // remount; an ordinary field is validated but never rendered.
+  guardUnsignedCompletions: Schema.boolean().default(true).volatile(),
+  holdOpenList: Schema.boolean().default(true).volatile(),
+  restorePanel: Schema.boolean().default(true).volatile(),
 })
 
 /** Turns already held once, so a model that will not update its list still ends. */
