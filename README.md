@@ -132,6 +132,14 @@ lowest priority renders), and `complete_step` gets its own `tool.call.toolview`
 key — a fresh key, not a shadow of the shipped `todo_write` row, which does not
 render for a plugin registration at any priority.
 
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+The panel inlines path data from [Material Symbols](https://fonts.google.com/icons)
+(Google, Apache-2.0): the checklist, check-circle, and chevron glyphs in
+`client.js`.
+
 ## Behaviour notes
 
 - The hold fires at most once per turn, so a model that refuses to update its

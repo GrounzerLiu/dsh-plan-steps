@@ -18,7 +18,8 @@
     "test",
     "README.md",
     "icon.svg",
-    "client.js"
+    "client.js",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -28,5 +29,10 @@
       "platform": "web",
       "immediately": true
     }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GrounzerLiu/dsh-plan-steps.git"
   }
 }
