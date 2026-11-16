@@ -337,21 +337,18 @@ window.__ModuleLoader__.load({
       },
     }
 
-    function SettingsCard({ form, view, label }) {
-      // The owner hands the page an already-derived model: { state, mutate }.
-      if (view !== 'page' || form === undefined) return null
-      const state = form.state ?? {}
-      const value = state.value ?? {}
-      const writable = state.writable !== false
-      const rows = [
-        ['guardUnsignedCompletions', 'guard', 'guardHint'],
-        ['holdOpenList', 'hold', 'holdHint'],
-        ['restorePanel', 'restore', 'restoreHint'],
-      ]
+    const SETTINGS_ROWS = [
+      ['guardUnsignedCompletions', 'guard', 'guardHint'],
+      ['holdOpenList', 'hold', 'holdHint'],
+      ['restorePanel', 'restore', 'restoreHint'],
+    ]
+
+    /** The three switches, shared by the row page and the bundle section. */
+    function Toggles({ value, writable, onToggle, label }) {
       return h(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-        rows.map(([key, dictKey, hintKey]) => {
+        { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
+        SETTINGS_ROWS.map(([key, dictKey, hintKey]) => {
           const on = value[key] !== false
           return h(
             'div',
@@ -359,11 +356,11 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 } },
-              h('span', { style: { fontSize: '13px' } }, label === undefined ? dictKey : label(dictKey)),
+              h('span', { style: { fontSize: '13px' } }, label(dictKey)),
               h(
                 'span',
                 { style: { fontSize: '12px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #8b8f96)' } },
-                label === undefined ? '' : label(hintKey),
+                label(hintKey),
               ),
             ),
             h(
@@ -373,14 +370,14 @@ window.__ModuleLoader__.load({
                 role: 'switch',
                 'aria-checked': on,
                 disabled: writable === false,
-                onClick: () => void form.mutate([{ op: 'set', path: [key], value: !on }], state.revision),
+                onClick: () => onToggle(key, !on),
                 style: {
                   width: '36px',
                   height: '20px',
                   flex: 'none',
                   borderRadius: '999px',
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: writable === false ? 'default' : 'pointer',
                   background: on ? 'var(--dsw-alias-state-business-primary, #4c8dff)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,0.4))',
                   position: 'relative',
                   transition: 'background 120ms ease',
@@ -402,6 +399,34 @@ window.__ModuleLoader__.load({
           )
         }),
       )
+    }
+
+    /** The row's own Configure page; the owner hands it {view, form}. */
+    function SettingsCard({ form, view, label }) {
+      if (view !== 'page' || form === undefined) return null
+      const state = form.state ?? {}
+      return h(Toggles, {
+        value: state.value ?? {},
+        writable: state.writable !== false,
+        onToggle: (key, next) => void form.mutate([{ op: 'set', path: [key], value: next }], state.revision),
+        label,
+      })
+    }
+
+    /** The same switches as a section on the bundle's own page. */
+    function DetailSection({ subject, form, label }) {
+      const snapshot = React.useSyncExternalStore(
+        (listener) => form.subscribe(listener),
+        () => form.getSnapshot(),
+      )
+      if (subject === undefined || subject.kind !== 'bundle' || subject.pkg?.name !== 'dsh-plan-steps') return null
+      const value = snapshot?.value ?? {}
+      return h(Toggles, {
+        value,
+        writable: snapshot?.writable !== false,
+        onToggle: (key, next) => void form.set(key, next),
+        label,
+      })
     }
 
     return {
@@ -431,6 +456,24 @@ window.__ModuleLoader__.load({
               }),
             'plan-steps: row settings',
           )
+          const form = ctx.configForms.get('plan-steps')
+          if (form !== undefined && form !== null) {
+            ctx.effect(
+              () =>
+                ctx.slots.inject('plugins.detail.section', () =>
+                  ctx.slots.register(
+                    {
+                      name: 'plugins.detail.section',
+                      id: 'plan-steps',
+                      order: 60,
+                      inject: () => ({ form, label: (key) => t(key) }),
+                    },
+                    DetailSection,
+                  ),
+                ),
+              'plan-steps: bundle section',
+            )
+          }
         } catch (error) {
           document.documentElement.dataset.planCard = 'error: ' + String(error && error.message)
           console.warn('[plan-steps] settings card unavailable', error)
