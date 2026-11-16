@@ -213,30 +213,37 @@ window.__ModuleLoader__.load({
                     },
                   },
                   todo.status === 'completed'
-                    ? h(Icon, { name: 'check', size: 18, color: TOKENS.done })
+                    ? h(Icon, { name: 'check', size: 20, color: TOKENS.done })
                     : h(
-                        'span',
+                        'svg',
                         {
-                          style: {
-                            boxSizing: 'border-box',
-                            width: '18px',
-                            height: '18px',
-                            minWidth: '18px',
-                            minHeight: '18px',
-                            flex: '0 0 18px',
-                            padding: 0,
-                            borderRadius: '9999px',
-                            border: '1px solid ' + (todo.status === 'in_progress' ? TOKENS.accent : TOKENS.idle),
-                            color: todo.status === 'in_progress' ? TOKENS.accent : TOKENS.secondary,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '11px',
-                            lineHeight: '18px',
-                            fontVariantNumeric: 'tabular-nums',
-                          },
+                          width: 20,
+                          height: 20,
+                          viewBox: '0 0 20 20',
+                          'aria-hidden': true,
+                          style: { flex: '0 0 20px', display: 'block' },
                         },
-                        String(index),
+                        h('circle', {
+                          cx: 10,
+                          cy: 10,
+                          r: 9,
+                          fill: 'none',
+                          stroke: todo.status === 'in_progress' ? TOKENS.accent : TOKENS.idle,
+                          strokeWidth: 1,
+                        }),
+                        h(
+                          'text',
+                          {
+                            x: 10,
+                            y: 10,
+                            dy: '0.35em',
+                            textAnchor: 'middle',
+                            fontSize: 10,
+                            fill: todo.status === 'in_progress' ? TOKENS.accent : TOKENS.secondary,
+                            fontFamily: 'inherit',
+                          },
+                          String(index),
+                        ),
                       ),
                   h(
                     'span',
