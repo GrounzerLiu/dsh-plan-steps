@@ -1,0 +1,5 @@
+- insert:
+    - id: task-steps
+      name: dsh-task-steps
+      config:
+        guardUnsignedCompletions: true

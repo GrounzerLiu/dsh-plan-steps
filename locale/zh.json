@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "任务步签核",
+    "description": "用 complete_step 签核任务列表的一步；宿主推进列表，并拒绝没有签核的完成标记。",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Plan steps",
+    "description": "Sign a task-list step off with complete_step; the host advances the list and refuses unsigned completions.",
+    "detail": "docs/DETAIL.md"
+  }
+}
