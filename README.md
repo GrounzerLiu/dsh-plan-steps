@@ -13,6 +13,8 @@ turn is pulled back while the list still has open work.
 | turn hold | Steers the turn back when it is about to close with open items — once per turn. |
 | `wait_for_user` | Declares a wait, so that turn may end with the item open. |
 | request state | Carries the host list into the request when the visible window has lost it. |
+| dock panel | Replaces the pinned task panel with `计划 · 第 N / M 步` + the current step + a segmented bar. |
+| step row | The same position on every `complete_step` tool row. |
 
 The list itself is the latest `todo/write` event in the session log, so a fold,
 a fork, or a restart derives the same list. Nothing is cached in plugin memory.
@@ -115,16 +117,19 @@ stop the behaviour entirely, set `PLAN_STEPS_HOLD=0`.
 the name must match an item in the current snapshot. The error lists every item
 with its status and position.
 
-**A `client:` half is served only from a tarball/registry install.** The Web host
-serves `/plugins/<id>/client.js` from a path inside the profile; an install that
+**The `client:` half needs a tarball/registry install.** The Web host serves
+`/plugins/<id>/client.js` from a path inside the profile; an install that
 resolves through `link:D:/...` reports a module outside it and the browser gets a
 404 (`import failed` on boot). Replacing the profile's symlink with a junction or
 a real copy does not help: the client scan resolves the package from the
-profile's `link:` spec. A tarball install does serve the module, but a
-registration for `tool.call.toolview` / `todo_write` still did not shadow the
-shipped row at either priority (`-1` and `1` both accepted, neither rendered), so
-this repository ships no client half. The host half is unaffected — tools,
-guards and the turn hold all run from the linked package.
+profile's `link:` spec. Install the packed `.tgz` instead, then reload the page
+once so the new client module enters the boot graph.
+
+Two views ship in it: the pinned dock panel claims `conversation.input.dock` with
+id `todo` at priority `-1` (the shipped panel is the same id at `0`, and the
+lowest priority renders), and `complete_step` gets its own `tool.call.toolview`
+key — a fresh key, not a shadow of the shipped `todo_write` row, which does not
+render for a plugin registration at any priority.
 
 ## Behaviour notes
 
