@@ -26,6 +26,9 @@ import { randomUUID } from 'node:crypto'
 export const name = 'task-steps'
 export const inject = ['tools']
 
+/** Marks a level-1 sub-step inside content, which every projection keeps. */
+const SUB_STEP_MARK = '​'
+
 /** The shipped task list's snapshot event: one whole-list write per update. */
 const TODO_WRITE = 'todo/write'
 
@@ -75,8 +78,16 @@ function normalize(text) {
  * two-level plan needs; a flat list simply has neither.
  */
 function toItem(todo) {
-  const item = { content: String(todo?.content ?? ''), status: todo?.status ?? 'pending' }
-  if (Number(todo?.level) === 1) item.level = 1
+  let content = String(todo?.content ?? '')
+  // The shipped projection keeps only content and status, so a sub-step carries
+  // a leading zero-width space: it survives every reader and is invisible.
+  let marker = false
+  if (content.startsWith(SUB_STEP_MARK)) {
+    marker = true
+    content = content.slice(SUB_STEP_MARK.length)
+  }
+  const item = { content, status: todo?.status ?? 'pending' }
+  if (marker || Number(todo?.level) === 1) item.level = 1
   const id = String(todo?.step_id ?? todo?.stepId ?? '').trim()
   if (id !== '') item.stepId = id
   return item
@@ -522,7 +533,7 @@ export function apply(ctx) {
       if (problem !== null) throw new Error(problem)
       agent.session.append(TODO_WRITE, {
         todos: items.map((item) => ({
-          content: item.content,
+          content: item.level === 1 ? SUB_STEP_MARK + item.content : item.content,
           status: item.status,
           ...(item.level === 1 ? { level: 1 } : {}),
           ...(item.stepId === undefined ? {} : { step_id: item.stepId }),

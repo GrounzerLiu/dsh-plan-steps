@@ -41,6 +41,13 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** A stored item's level and visible text: a sub-step carries ​. */
+    function readItem(item) {
+      const raw = String(item?.content ?? '')
+      const nested = raw.startsWith('​')
+      return { ...item, content: nested ? raw.slice(1) : raw, level: nested ? 1 : 0 }
+    }
+
     /** Position of the current step: the first open item. */
     function positionOf(todos) {
       const done = todos.filter((item) => item.status === 'completed').length
@@ -102,7 +109,8 @@ window.__ModuleLoader__.load({
       // loses its level and step ids there. When the plugin's own plan view is
       // wired, read that; otherwise fall back to the shipped projection.
       const fromPlan = usePlan === undefined ? null : usePlan((state) => state)
-      const todos = Array.isArray(fromPlan) ? fromPlan : (useProjection('todos') ?? [])
+      const raw = Array.isArray(fromPlan) ? fromPlan : (useProjection('todos') ?? [])
+      const todos = raw.map(readItem)
       const [open, setOpen] = React.useState(false)
       if (todos.length === 0) return null
       const { done, total, index, current } = positionOf(todos)
@@ -177,10 +185,10 @@ window.__ModuleLoader__.load({
                 style: {
                   listStyle: 'none',
                   margin: 0,
-                  padding: '0 12px 8px',
+                  padding: '4px 14px 10px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '8px',
+                  gap: '10px',
                   maxHeight: '180px',
                   overflowY: 'auto',
                 },
@@ -188,7 +196,7 @@ window.__ModuleLoader__.load({
               todos.map((todo, i) => {
                 const nested = (todo.level ?? 0) === 1
                 const color = todo.status === 'completed' ? TOKENS.done : TOKENS.title
-                const index = todos.slice(0, i).filter((item) => (item.level ?? 0) === 0).length + 1
+                const index = i + 1
                 return h(
                   'li',
                   {
@@ -198,8 +206,8 @@ window.__ModuleLoader__.load({
                       alignItems: 'center',
                       gap: '10px',
                       fontSize: '13px',
-                      lineHeight: '20px',
-                      paddingLeft: nested ? '26px' : '0',
+                      lineHeight: '22px',
+                      paddingLeft: nested ? '28px' : '0',
                       color,
                     },
                   },
@@ -231,7 +239,7 @@ window.__ModuleLoader__.load({
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
-                        fontWeight: nested ? 400 : 500,
+                        fontWeight: nested ? 400 : 600,
                       },
                     },
                     todo.content,
