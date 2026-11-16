@@ -115,15 +115,15 @@ stop the behaviour entirely, set `PLAN_STEPS_HOLD=0`.
 the name must match an item in the current snapshot. The error lists every item
 with its status and position.
 
-**A client half cannot be served while the plugin is installed with `link:`.**
-The Web host serves `/plugins/<id>/client.js` only from a path inside the
-profile; an install that resolves through `link:D:/...` reports a client module
-whose path is outside it, and the browser gets a 404 (`import failed` on boot).
-Replacing the profile's symlink with a junction, or with a real copy, does not
-change that: the client scan resolves the package from the profile's `link:`
-spec, so the revision and path stay pointed at the workspace. A `client.js`
-shipped from this plugin would need a tarball/registry install (real files in the
-profile store) before DSH can serve it. The host half is unaffected — tools,
+**A `client:` half is served only from a tarball/registry install.** The Web host
+serves `/plugins/<id>/client.js` from a path inside the profile; an install that
+resolves through `link:D:/...` reports a module outside it and the browser gets a
+404 (`import failed` on boot). Replacing the profile's symlink with a junction or
+a real copy does not help: the client scan resolves the package from the
+profile's `link:` spec. A tarball install does serve the module, but a
+registration for `tool.call.toolview` / `todo_write` still did not shadow the
+shipped row at either priority (`-1` and `1` both accepted, neither rendered), so
+this repository ships no client half. The host half is unaffected — tools,
 guards and the turn hold all run from the linked package.
 
 ## Behaviour notes
