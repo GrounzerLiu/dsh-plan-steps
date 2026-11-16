@@ -8,7 +8,7 @@ turn is pulled back while the list still has open work.
 
 | Piece | Effect |
 | --- | --- |
-| `plan_write` | Records a two-level plan: `level` 0 phases, `level` 1 sub-steps, stable `step_id`, one current item. Mirrors Reasonix's `todo_write`. |
+| `plan_write` | Records a two-level plan: `level` 0 phases, `level` 1 sub-steps, stable `step_id`, one current item. Mirrors Reasonix's `todo_write`, including its rewrite rules: an id is never dropped, the current item is never removed or moved back to pending, and completed history keeps its position. |
 | `complete_step` | Signs the current `in_progress` item off, appends the advanced list as a `todo/write` snapshot (the panel follows), and names the next step. A phase signs off only after its sub-steps. |
 | guard | Refuses a `plan_write` / `todo_write` that turns an item `completed` while the host still has it open. |
 | turn hold | Steers the turn back when it is about to close with open items — once per turn. |

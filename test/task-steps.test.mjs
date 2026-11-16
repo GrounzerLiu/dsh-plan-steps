@@ -131,3 +131,38 @@ test('replayCalls ignores an unsettled or failed call and applies a settled one'
   ])
   assert.equal(replayCalls([]), null)
 })
+
+test('continuity rejects dropping a step_id', () => {
+  const { continuityProblem } = __testing
+  const previous = [phase('p', 'pending'), sub('s1', 'in_progress', 'id1')]
+  const next = [phase('p', 'pending'), sub('s1 renamed', 'in_progress', 'id2')]
+  assert.match(continuityProblem(previous, next), /step_id "id1" .* was dropped/)
+})
+
+test('continuity rejects removing or replacing the current item', () => {
+  const { continuityProblem } = __testing
+  const named = [phase('p', 'pending'), sub('s1', 'in_progress')]
+  assert.match(continuityProblem(named, [phase('p', 'in_progress'), sub('s2', 'pending')]), /cannot be removed or replaced/)
+  const identified = [phase('p', 'pending'), sub('s1', 'in_progress', 'id1')]
+  assert.match(
+    continuityProblem(identified, [phase('p', 'pending'), sub('s1', 'pending', 'id1'), sub('s2', 'in_progress', 'id2')]),
+    /cannot move back to pending/,
+  )
+})
+
+test('continuity keeps completed history in place', () => {
+  const { continuityProblem } = __testing
+  const previous = [phase('a', 'completed'), phase('b', 'in_progress'), phase('c', 'pending')]
+  assert.equal(continuityProblem(previous, [phase('a', 'completed'), phase('b', 'in_progress'), phase('c', 'pending')]), null)
+  assert.match(
+    continuityProblem(previous, [phase('b', 'in_progress'), phase('a', 'completed'), phase('c', 'pending')]),
+    /must keep its position/,
+  )
+})
+
+test('continuity allows a first write and an additive replan', () => {
+  const { continuityProblem } = __testing
+  assert.equal(continuityProblem(null, [phase('a', 'in_progress')]), null)
+  const previous = [phase('a', 'in_progress'), phase('b', 'pending')]
+  assert.equal(continuityProblem(previous, [phase('a', 'in_progress'), phase('new', 'pending'), phase('b', 'pending')]), null)
+})

@@ -77,12 +77,14 @@ The tools stay registered either way.
 node --test test/
 ```
 
-Fifteen cases over the pure helpers: name normalisation, step resolution
+Nineteen cases over the pure helpers: name normalisation, step resolution
 (`step_id` before name before position), the flat and two-level advance rules
 (next sibling, phase sign-off last, phase with open sub-steps refused, next
 phase's first sub-step), serial validation (single current item, phase made
 current too early, pending work with no current item), call replay, step
-identity, the stored-state parser, and the state block.
+identity, the stored-state parser, and the state block — plus the four
+continuity rules a rewrite must respect (id preserved, current item kept and not
+regressed, completed history in place, first write and additive replan allowed).
 
 ## Verification
 

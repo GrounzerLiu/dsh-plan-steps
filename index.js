@@ -361,6 +361,72 @@ function advance(items, at) {
 }
 
 /**
+ * Find the same item in a rewrite: by step_id when both carry one, else by
+ * normalized content.
+ * @param item - the item to look for.
+ * @param list - the submitted list.
+ * @returns the match and its index, or null.
+ */
+function findSame(item, list) {
+  if (item.stepId !== undefined) {
+    const byId = list.findIndex((candidate) => candidate.stepId === item.stepId)
+    if (byId !== -1) return { item: list[byId], index: byId }
+  }
+  const key = normalize(item.content)
+  const byName = list.findIndex((candidate) => normalize(candidate.content) === key)
+  return byName === -1 ? null : { item: list[byName], index: byName }
+}
+
+/**
+ * The three continuity rules a rewrite must respect, mirroring Reasonix's
+ * `verifyStepIDsPreserved`, `verifyTodoCurrentContinuity` and
+ * `verifyCompletedTodoPositions`: an id is never dropped, the current item is
+ * never removed or moved back to pending, and completed history keeps its
+ * position.
+ * @param previous - the list the host holds, or null before the first write.
+ * @param next - the submitted list.
+ * @returns an error message, or null when the rewrite is coherent.
+ */
+function continuityProblem(previous, next) {
+  if (previous === null || previous.length === 0) return null
+  for (const item of previous) {
+    if (item.stepId === undefined) continue
+    if (next.some((candidate) => candidate.stepId === item.stepId)) continue
+    return (
+      `step_id ${JSON.stringify(item.stepId)} (${JSON.stringify(item.content)}) was dropped; ` +
+      'copy every existing step_id verbatim so a completion stays attached to its step'
+    )
+  }
+  const current = previous.find((item) => item.status === 'in_progress')
+  if (current !== undefined) {
+    const match = findSame(current, next)
+    if (match === null) {
+      return (
+        `the current item ${JSON.stringify(current.content)} cannot be removed or replaced while it is in progress; ` +
+        'sign it off with complete_step first'
+      )
+    }
+    if (match.item.status === 'pending') {
+      return (
+        `the current item ${JSON.stringify(current.content)} cannot move back to pending; ` +
+        'keep it in_progress or sign it off with complete_step'
+      )
+    }
+  }
+  for (let i = 0; i < previous.length; i += 1) {
+    if (previous[i].status !== 'completed') continue
+    const match = findSame(previous[i], next)
+    if (match === null || match.index !== i) {
+      return (
+        `completed item ${JSON.stringify(previous[i].content)} must keep its position; ` +
+        'completed history cannot be removed, renamed or reordered while the plan is active'
+      )
+    }
+  }
+  return null
+}
+
+/**
  * Validate a submitted list against the serial state machine: at most one
  * current item, completed work as a prefix, pending work after the current
  * item, sub-steps in order, and a phase that is current only once its
@@ -531,6 +597,8 @@ export function apply(ctx) {
       }
       const problem = validateSerial(items)
       if (problem !== null) throw new Error(problem)
+      const continuity = continuityProblem(listOf(agent.session), items)
+      if (continuity !== null) throw new Error(continuity)
       agent.session.append(TODO_WRITE, {
         todos: items.map((item) => ({
           content: item.level === 1 ? SUB_STEP_MARK + item.content : item.content,
@@ -880,4 +948,4 @@ export function apply(ctx) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem }
