@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "任务步签核",
-    "description": "用 complete_step 签核任务列表的一步；宿主推进列表，并拒绝没有签核的完成标记。",
+    "title": "计划步骤",
+    "description": "两级计划与签核推进：plan_write 建表、complete_step 一项一项签、面板显示第几步和当前步骤。",
     "detail": "docs/DETAIL.md"
   }
 }

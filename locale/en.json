@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Plan steps",
-    "description": "Sign a task-list step off with complete_step; the host advances the list and refuses unsigned completions.",
+    "description": "Two-level plans with sign-off: plan_write records the list, complete_step closes one item at a time, and the panel shows which step is current.",
     "detail": "docs/DETAIL.md"
   }
 }
