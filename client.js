@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
       title: 'var(--dsw-alias-label-primary, currentColor)',
       secondary: 'var(--dsw-alias-label-tertiary, #8b8f96)',
       accent: 'var(--dsw-alias-state-business-primary, #7c8cff)',
+      done: 'var(--dsw-alias-state-success-primary, #2ea043)',
       idle: 'var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
       card: 'var(--dsw-specific-menu, transparent)',
       hover: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12))',
@@ -34,7 +35,7 @@ window.__ModuleLoader__.load({
               width: '14px',
               height: '4px',
               borderRadius: '2px',
-              background: i < done ? TOKENS.secondary : i === done ? TOKENS.accent : TOKENS.idle,
+              background: i < done ? TOKENS.done : i === done ? TOKENS.accent : TOKENS.idle,
             },
           }),
         )
@@ -43,7 +44,7 @@ window.__ModuleLoader__.load({
     }
 
     function Glyph({ status }) {
-      const color = status === 'completed' ? TOKENS.secondary : status === 'in_progress' ? TOKENS.accent : TOKENS.idle
+      const color = status === 'completed' ? TOKENS.done : status === 'in_progress' ? TOKENS.accent : TOKENS.idle
       return h(
         'span',
         {
@@ -162,7 +163,7 @@ window.__ModuleLoader__.load({
                       gap: '10px',
                       fontSize: '13px',
                       lineHeight: '20px',
-                      color: todo.status === 'completed' ? TOKENS.secondary : TOKENS.title,
+                      color: todo.status === 'completed' ? TOKENS.done : TOKENS.title,
                     },
                   },
                   h(Glyph, { status: todo.status }),
