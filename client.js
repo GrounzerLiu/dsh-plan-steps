@@ -317,8 +317,24 @@ window.__ModuleLoader__.load({
     /** The settings card shown on the plugin page. */
     const SETTINGS_NS = 'settings.planSteps'
     const SETTINGS_TEXT = {
-      zh: { title: '计划步骤', guard: '拒绝未签核的完成', hold: '列表开着时拉回一轮', restore: '每轮重建面板快照' },
-      en: { title: 'Plan steps', guard: 'Refuse unsigned completions', hold: 'Pull a turn back while items are open', restore: 'Rebuild the panel snapshot each turn' },
+      zh: {
+        title: '计划步骤',
+        guard: '完成必须签核',
+        guardHint: '不允许直接改列表把任务标成完成，必须逐项签核',
+        hold: '未完成时继续工作',
+        holdHint: '一轮要结束时若还有未完成任务，自动拉回来继续（每轮一次）',
+        restore: '跨轮保留进度',
+        restoreHint: '每轮开始时重建任务面板，否则要等下一次写入才显示',
+      },
+      en: {
+        title: 'Plan steps',
+        guard: 'Completions need a sign-off',
+        guardHint: 'An item cannot be closed by rewriting the list; sign each one off',
+        hold: 'Keep working while items are open',
+        holdHint: 'A turn that is about to end with open items is pulled back once',
+        restore: 'Keep the panel across turns',
+        restoreHint: 'Rebuild the task panel at the start of a turn',
+      },
     }
 
     function SettingsCard({ form, view, label }) {
@@ -328,19 +344,28 @@ window.__ModuleLoader__.load({
       const value = state.value ?? {}
       const writable = state.writable !== false
       const rows = [
-        ['guardUnsignedCompletions', 'guard'],
-        ['holdOpenList', 'hold'],
-        ['restorePanel', 'restore'],
+        ['guardUnsignedCompletions', 'guard', 'guardHint'],
+        ['holdOpenList', 'hold', 'holdHint'],
+        ['restorePanel', 'restore', 'restoreHint'],
       ]
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-        rows.map(([key, dictKey]) => {
+        rows.map(([key, dictKey, hintKey]) => {
           const on = value[key] !== false
           return h(
             'div',
             { key, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
-            h('span', { style: { fontSize: '13px' } }, label === undefined ? dictKey : label(dictKey)),
+            h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 } },
+              h('span', { style: { fontSize: '13px' } }, label === undefined ? dictKey : label(dictKey)),
+              h(
+                'span',
+                { style: { fontSize: '12px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #8b8f96)' } },
+                label === undefined ? '' : label(hintKey),
+              ),
+            ),
             h(
               'button',
               {
