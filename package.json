@@ -19,7 +19,8 @@
     "README.md",
     "icon.svg",
     "client.js",
-    "LICENSE"
+    "LICENSE",
+    "README.en.md"
   ],
   "dsh": {
     "bundle": {

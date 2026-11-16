@@ -1,154 +1,164 @@
 # dsh-plan-steps
 
-Host-owned task-list steps for DeepSeek Harness: `complete_step` signs one item
-off and the host advances the list, a guard refuses an unsigned completion, and a
-turn is pulled back while the list still has open work.
+中文 | [English](README.en.md)
 
-## What it adds
+给 DeepSeek Harness 用的「计划步骤」：`plan_write` 记录两级计划，`complete_step`
+一项一项签核并由宿主推进，守卫拒绝未签核的完成，列表还开着时轮末会被拉回，面板上
+实时显示「计划 · 第 N / M 步」。
 
-| Piece | Effect |
+设计参考了 [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 的
+`todo_write` / `complete_step` / `AdvanceSerialTodo` 语义（两级阶段与子步骤、稳定
+`step_id`、阶段最后签核）。这个插件是按 DSH 的事件与槽位模型重写的实现，不是它的
+移植。
+
+## 带来什么
+
+| 部件 | 作用 |
 | --- | --- |
-| `plan_write` | Records a two-level plan: `level` 0 phases, `level` 1 sub-steps, stable `step_id`, one current item. Mirrors Reasonix's `todo_write`, including its rewrite rules: an id is never dropped, the current item is never removed or moved back to pending, and completed history keeps its position. |
-| `complete_step` | Signs the current `in_progress` item off, appends the advanced list as a `todo/write` snapshot (the panel follows), and names the next step. A phase signs off only after its sub-steps. |
-| guard | Refuses a `plan_write` / `todo_write` that turns an item `completed` while the host still has it open. |
-| turn hold | Steers the turn back when it is about to close with open items — once per turn. |
-| `wait_for_user` | Declares a wait, so that turn may end with the item open. |
-| request state | Carries the host list into the request when the visible window has lost it. |
-| dock panel | Replaces the pinned task panel with `计划 · 第 N / M 步` + the current step + a segmented bar. |
-| step row | The same position on every `complete_step` tool row. |
+| `plan_write` | 记录两级计划：`level` 0 是阶段，`level` 1 是它的子步骤，每项可带稳定 `step_id`，全表只有一个当前项。重写时执行连续性校验：已有的 id 不能丢、当前项不能被删或降级、已完成项保持原位。 |
+| `complete_step` | 签掉当前 `in_progress` 那一项，宿主推进列表并写入 `todo/write` 快照（面板随之更新），再把下一步告诉你。阶段必须等子步骤全部完成后才能签。 |
+| 守卫 | 列表里还开着的项被 `plan_write` / `todo_write` 直接标成 `completed` 时拒绝。 |
+| 收尾拉回 | 轮末列表还有未完成项时，用 `agent.steer()` 把这一轮拉回来——每轮最多一次。 |
+| `wait_for_user` | 声明「在等用户」，这一轮就不会被拉回。 |
+| 上下文召回 | 可见窗口里没有当前列表时，把「Host task state」块注入请求。 |
+| 面板 | 接管输入框上方的任务面板，显示「计划 · 第 N / M 步」+ 当前项 + 分段进度条，展开是两级缩进列表。 |
+| 工具行 | 每次 `complete_step` 也会带同样的位置信息。 |
 
-The list itself is the latest `todo/write` event in the session log, so a fold,
-a fork, or a restart derives the same list. Nothing is cached in plugin memory.
+列表本身是会话日志里最后一条 `todo/write` 事件，所以折叠、分支、重启之后推导出的
+是同一份列表；插件内存里不缓存任何状态。
 
-## Why not just make `todo_write` mark things completed?
+## 为什么要把「写计划」和「签核」分开
 
-Because the shipped `todo_write` is the model's own statement, and a statement
-about progress is exactly the thing that goes stale silently. A tool that both
-records the plan and certifies the work cannot tell "I finished it" from "I want
-this off my list" — and after a fold, the model no longer even has the table it
-would be editing.
+内置的 `todo_write` 是模型自己的一句话：它既记录计划，又声明完工。这两件事混在一个
+动作里，就分不出「我做完了」和「我想把它从列表划掉」；而且折叠之后，模型手里连那张
+表都没有了。
 
-Splitting the two makes the distinction structural:
+拆开之后，边界变成结构性的：
 
-- `todo_write` still owns the plan: what the steps are, in what order.
-- `complete_step` owns execution: one item, the current one, at the moment it is
-  done.
-- The host owns the list, so "signed off" and "still open" are facts it can
-  check — in the guard, at the end of a turn, and in the request.
+- `plan_write` 管计划：有哪些步骤、什么顺序
+- `complete_step` 管执行：一次一项、只签当前项、签完才推进
+- 宿主管列表：于是「签过」和「还开着」是它能在守卫、轮末、请求三处校验的事实
 
-## Coexistence with the shipped todo tool
+## 推进规则
 
-The shipped `todo_write` stays authoritative for the plan, so the two never
-fight over one state:
+顺序推进、深度优先：阶段内的子步骤按列表顺序做；子步骤跑的时候阶段保持 `pending`，
+全部完成之后阶段才成为当前项（阶段最后签）；签掉阶段才轮到下一个阶段的第一个子步骤。
 
-- **One source of truth.** The list is the last `todo/write` event. The shipped
-  tool writes one per call, and so does `complete_step`, so anything that writes
-  that event is what both sides read.
-- **Creating and rewriting a plan still goes through `todo_write`.** A new list
-  (items `pending`) is always accepted; the guard only looks at items turning
-  `completed`.
-- **A replan may rename freely** as long as it does not add a completion: the
-  guard compares the completed count, then the names. Renaming *and* closing in
-  the same write is refused.
-- **Plan mode / other seeders** that write the same event are honoured; this
-  plugin has no separate store to fall out of sync.
-- **Disabling this plugin** leaves the lists in the log; the shipped panel keeps
-  rendering them.
+```
+1 调研与设计          pending
+   1.1 读现有实现      in_progress   ← 当前
+   1.2 记录要点        pending
+2 实现                pending
+   2.1 改代码          pending
+```
 
-## Install
+签 1.1 → 1.2 成为当前；签 1.2 → 阶段 1 成为当前等待签收；签 1 → 2.1 成为当前。
+这三条在数据上强制：阶段带着未完成子步骤时既不能是 `in_progress`，也不能被签核。
 
-Local directory, no build step, no dependencies:
+## 工具
+
+**`plan_write`**
+
+| 参数 | 说明 |
+| --- | --- |
+| `todos[].content` | 任务名，必填且不能重复 |
+| `todos[].status` | `pending` / `in_progress` / `completed` |
+| `todos[].level` | `0` 阶段，`1` 子步骤 |
+| `todos[].step_id` | 稳定身份，重写时原样抄回 |
+| `todos[].activeForm` | 进行时描述，可选 |
+
+**`complete_step`**
+
+| 参数 | 说明 |
+| --- | --- |
+| `step_id` | 首选，稳定身份 |
+| `step` | 项目名，没有 id 时用 |
+| `index` | 1-based 序号，前两者都不可用时用 |
+| `result` | 必填，说明这一步之后什么成立了 |
+
+**`wait_for_user`**
+
+| 参数 | 说明 |
+| --- | --- |
+| `need` | 一句话说清在等什么；占位词会被拒绝 |
+
+## 安装
+
+本地目录安装，无构建步骤、无运行时依赖：
 
 ```sh
-# in the Harness UI: Plugins > Add plugin > pick this directory
-# or, with the manager tool:
+# 界面：插件 > 添加插件 > 选这个目录
+# 或用管理工具：
 #   install_bundle(target: "D:/dsh-plugins/dsh-plan-steps")
 ```
 
-The bundle inserts one row, `include:plan-steps`. Two tools join the model's
-toolset: `complete_step` and `wait_for_user`.
+从 GitHub 安装（真实文件落进 profile，客户端半也能被服务）：
 
-## Configure
+```sh
+dsh plugin --profile desktop add github:GrounzerLiu/dsh-plan-steps
+# 再把 dsh-plan-steps 加进 profile 的 dsh.profile.bundles
+```
 
-Environment variables, read when the plugin activates:
+bundle 会插入一行 `include:plan-steps`，并让 `plan_write`、`complete_step`、
+`wait_for_user` 三个工具进入模型工具集。
 
-| Variable | Default | Effect |
+**客户端半需要 tarball / git 安装。** `link:` 安装时 Web 端取不到
+`/plugins/<id>/client.js`（路径落在 profile 之外，浏览器 404），面板不会变样；
+宿主侧的工具不受影响。装完后刷新一次页面，客户端模块才会进入启动图。
+
+## 配置
+
+环境变量，在插件激活时读一次：
+
+| 变量 | 默认 | 作用 |
 | --- | --- | --- |
-| `PLAN_STEPS_GUARD` | on | `0` stops the `todo_write` guard. |
-| `PLAN_STEPS_HOLD` | on | `0` stops the turn-stopping hold. |
-| `PLAN_STEPS_RESTORE` | on | `0` stops writing the open list back at the start of a turn. |
+| `PLAN_STEPS_GUARD` | 开 | `0` 关闭完成守卫 |
+| `PLAN_STEPS_HOLD` | 开 | `0` 关闭轮末拉回 |
+| `PLAN_STEPS_RESTORE` | 开 | `0` 关闭每轮开始时的面板快照重建 |
 
-The tools stay registered either way.
+关掉开关不影响工具注册。
 
-## Uninstall
+## 卸载
 
-`remove_bundle` in the Plugin Manager, or disable the `plan-steps` row. Nothing
-is written outside the plugin directory, so removal needs no cleanup. Task lists
-written before removal stay in the session log and remain readable by the shipped
-todo tool.
+插件管理里 `remove_bundle`，或关掉 `plan-steps` 那一行。插件不往目录外写东西，删了
+不需要清理；之前写下的任务列表仍留在会话日志里，内置面板照样能读。
 
-## Tests
+## 测试
 
 ```sh
 node --test test/
 ```
 
-## Troubleshooting
+19 个用例，覆盖两级推进的五种走位、重写的三条连续性规则、序列校验、调用重放等。
 
-**The panel goes blank at the start of a turn.** The shipped task projection
-resets on `turn/start`. This plugin writes the open list back on the next
-macrotask, and the first step of the turn restores it again if that write fails.
-A failed early write logs one warning per session (`plan-steps: could not
-restore the task panel at turn start`), so a host change shows up in the log
-instead of as a silent blank panel.
+## 排错
 
-**`complete_step` says the session has no task list.** No `todo_write` has
-succeeded in this session yet, or the host exposes no session log to the plugin.
-Create the list first.
+**每轮开始面板会空一下。** 内置任务投影在 `turn/start` 重置。插件在下一个宏任务把
+未完成的列表写回去，第一步还会再兜底一次；早写失败时每个会话记一条警告
+（`plan-steps: could not restore the task panel at turn start`），所以宿主行为变了
+能在日志里看出来，而不是悄悄空白。
 
-**A completion is refused.** The guard fired: the item was closed in a
-`todo_write` without a `complete_step` in the same session. Sign it off first,
-or send the list again leaving it `in_progress`.
+**`complete_step` 说没有任务列表。** 本会话还没有成功的 `plan_write`，或宿主既没有
+投影也没有会话日志可读。先建列表。
 
-**A turn keeps getting pulled back.** Expected once per turn while items are
-open. To end a turn deliberately, call `wait_for_user` with what you need; to
-stop the behaviour entirely, set `PLAN_STEPS_HOLD=0`.
+**完成被拒绝。** 守卫或连续性校验拦下了：可能在 `plan_write` 里直接标了
+`completed`，也可能重写时丢掉了 id、删掉或降级了当前项、移动了已完成项。先
+`complete_step`，再改列表。
 
-**`step "..." matches no task-list item`.** The list is rebuilt from the log, so
-the name must match an item in the current snapshot. The error lists every item
-with its status and position.
+**一轮总被拉回。** 列表还开着时每轮最多拉一次，这是设计。要正常结束就调
+`wait_for_user` 说明在等什么；要彻底关掉就设 `PLAN_STEPS_HOLD=0`。
 
-**The `client:` half needs a tarball/registry install.** The Web host serves
-`/plugins/<id>/client.js` from a path inside the profile; an install that
-resolves through `link:D:/...` reports a module outside it and the browser gets a
-404 (`import failed` on boot). Replacing the profile's symlink with a junction or
-a real copy does not help: the client scan resolves the package from the
-profile's `link:` spec. Install the packed `.tgz` instead, then reload the page
-once so the new client module enters the boot graph.
+**`step "..." matches no task-list item`。** 列表是从日志重建的，引用必须命中当前
+快照里的项；报错会列出每一项的状态与位置。
 
-Two views ship in it: the pinned dock panel claims `conversation.input.dock` with
-id `todo` at priority `-1` (the shipped panel is the same id at `0`, and the
-lowest priority renders), and `complete_step` gets its own `tool.call.toolview`
-key — a fresh key, not a shadow of the shipped `todo_write` row, which does not
-render for a plugin registration at any priority.
+## 许可
 
-## Licence
+MIT，见 [LICENSE](LICENSE)。
 
-MIT — see [LICENSE](LICENSE).
+面板里的图标路径数据来自 [Material Symbols](https://fonts.google.com/icons)
+（Google，Apache-2.0）：`client.js` 里的 checklist / check-circle / chevron。
 
-The panel inlines path data from [Material Symbols](https://fonts.google.com/icons)
-(Google, Apache-2.0): the checklist, check-circle, and chevron glyphs in
-`client.js`.
+## 设计取舍
 
-## Behaviour notes
-
-- The hold fires at most once per turn, so a model that refuses to update its
-  list still finishes.
-- `wait_for_user` trusts the declaration; it cannot tell a real wait from a
-  convenient one.
-- The request state block is injected at most once per visible window, so a
-  freshly signed-off list can be one snapshot behind in the request.
-- Item identity is the item's name; the shipped list has no step ids.
-
-Three of those are deliberate: no step ids, a soft hold, and the shipped panel.
-The reasoning for each is in [docs/DETAIL.md](docs/DETAIL.md#deliberate-non-goals).
+没有硬性收尾闸门、面板仍归内置那份投影、层级靠内容里的零宽标记穿过投影——这些是
+刻意的取舍，理由写在 [docs/DETAIL.md](docs/DETAIL.md)。
