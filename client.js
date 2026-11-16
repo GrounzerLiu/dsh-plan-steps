@@ -195,7 +195,7 @@ window.__ModuleLoader__.load({
               },
               todos.map((todo, i) => {
                 const nested = (todo.level ?? 0) === 1
-                const color = todo.status === 'completed' ? TOKENS.done : TOKENS.title
+                const color = TOKENS.title
                 const index = i + 1
                 return h(
                   'li',

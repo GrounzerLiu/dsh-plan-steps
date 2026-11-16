@@ -1,6 +1,6 @@
 {
   "name": "dsh-task-steps",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "type": "module",
   "description": "Host-owned task list steps: complete_step signs one item off and advances the list.",
