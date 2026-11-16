@@ -15,6 +15,32 @@ window.__ModuleLoader__.load({
       radius: 'var(--dsw-radius-lg, 12px)',
     }
 
+    // Material Symbols (google/material-design-icons, Apache-2.0), inlined as
+    // path data so the panel renders offline.
+    const ICONS = {
+      checklist:
+        'M222-200 80-342l56-56 85 85 170-170 56 57-225 226Zm0-320L80-662l56-56 85 85 170-170 56 57-225 226Zm298 240v-80h360v80H520Zm0-320v-80h360v80H520Z',
+      check:
+        'm424-408-86-86q-11-11-28-11t-28 11q-11 11-11 28t11 28l114 114q12 12 28 12t28-12l226-226q11-11 11-28t-11-28q-11-11-28-11t-28 11L424-408Zm56 328q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Z',
+      chevronDown: 'M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z',
+      chevronUp: 'm296-345-56-56 240-240 240 240-56 56-184-184-184 184Z',
+    }
+
+    function Icon({ name, size, color }) {
+      return h(
+        'svg',
+        {
+          viewBox: '0 -960 960 960',
+          width: size,
+          height: size,
+          fill: 'currentColor',
+          'aria-hidden': true,
+          style: { flex: 'none', color, display: 'block' },
+        },
+        h('path', { d: ICONS[name] }),
+      )
+    }
+
     /** Position of the current step: the first open item. */
     function positionOf(todos) {
       const done = todos.filter((item) => item.status === 'completed').length
@@ -24,10 +50,18 @@ window.__ModuleLoader__.load({
       return { done, total, index, current }
     }
 
-    /** Segmented progress: filled for done, accented for the current step. */
-    function Bar({ done, total }) {
+    /**
+     * Segmented progress, painted by POSITION rather than by count: a two-level
+     * list can hold a pending phase between completed sub-steps, so "done"
+     * alone would put the accent on the wrong cell.
+     */
+    function Bar({ items, index }) {
+      const allDone = items.every((item) => item.status === 'completed')
       const cells = []
-      for (let i = 0; i < total; i += 1) {
+      for (let i = 0; i < items.length; i += 1) {
+        const position = i + 1
+        const current = !allDone && position === index
+        const filled = items[i].status === 'completed'
         cells.push(
           h('span', {
             key: i,
@@ -35,7 +69,7 @@ window.__ModuleLoader__.load({
               width: '14px',
               height: '4px',
               borderRadius: '2px',
-              background: i < done ? TOKENS.done : i === done ? TOKENS.accent : TOKENS.idle,
+              background: current ? TOKENS.accent : filled ? TOKENS.done : TOKENS.idle,
             },
           }),
         )
@@ -63,8 +97,12 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TaskPanel({ useProjection }) {
-      const todos = useProjection('todos') ?? []
+    function TaskPanel({ useProjection, usePlan }) {
+      // The shipped projection keeps only content/status, so a two-level plan
+      // loses its level and step ids there. When the plugin's own plan view is
+      // wired, read that; otherwise fall back to the shipped projection.
+      const fromPlan = usePlan === undefined ? null : usePlan((state) => state)
+      const todos = Array.isArray(fromPlan) ? fromPlan : (useProjection('todos') ?? [])
       const [open, setOpen] = React.useState(false)
       if (todos.length === 0) return null
       const { done, total, index, current } = positionOf(todos)
@@ -106,7 +144,7 @@ window.__ModuleLoader__.load({
               cursor: 'pointer',
             },
           },
-          h('span', { style: { color: TOKENS.secondary, flex: 'none' } }, '☰'),
+          h('span', { style: { color: TOKENS.secondary, flex: 'none', display: 'grid' } }, h(Icon, { name: 'checklist', size: 18 })),
           h('span', { style: { fontWeight: 500, flex: 'none' } }, label),
           h(
             'span',
@@ -122,19 +160,14 @@ window.__ModuleLoader__.load({
             },
             headline,
           ),
-          h(Bar, { done, total }),
+          h(Bar, { items: todos, index }),
           h(
             'span',
             {
               'aria-hidden': true,
-              style: {
-                color: TOKENS.secondary,
-                flex: 'none',
-                transform: open ? 'rotate(180deg)' : 'none',
-                transition: 'transform 120ms ease',
-              },
+              style: { color: TOKENS.secondary, flex: 'none', display: 'grid' },
             },
-            '⌄',
+            h(Icon, { name: open ? 'chevronUp' : 'chevronDown', size: 18 }),
           ),
         ),
         open
@@ -152,8 +185,11 @@ window.__ModuleLoader__.load({
                   overflowY: 'auto',
                 },
               },
-              todos.map((todo, i) =>
-                h(
+              todos.map((todo, i) => {
+                const nested = (todo.level ?? 0) === 1
+                const color = todo.status === 'completed' ? TOKENS.done : TOKENS.title
+                const index = todos.slice(0, i).filter((item) => (item.level ?? 0) === 0).length + 1
+                return h(
                   'li',
                   {
                     key: i,
@@ -163,10 +199,30 @@ window.__ModuleLoader__.load({
                       gap: '10px',
                       fontSize: '13px',
                       lineHeight: '20px',
-                      color: todo.status === 'completed' ? TOKENS.done : TOKENS.title,
+                      paddingLeft: nested ? '26px' : '0',
+                      color,
                     },
                   },
-                  h(Glyph, { status: todo.status }),
+                  todo.status === 'completed'
+                    ? h(Icon, { name: 'check', size: 18, color: TOKENS.done })
+                    : h(
+                        'span',
+                        {
+                          style: {
+                            width: '18px',
+                            height: '18px',
+                            flex: 'none',
+                            borderRadius: '50%',
+                            border: '1px solid ' + (todo.status === 'in_progress' ? TOKENS.accent : TOKENS.idle),
+                            color: todo.status === 'in_progress' ? TOKENS.accent : TOKENS.secondary,
+                            display: 'grid',
+                            placeItems: 'center',
+                            fontSize: '11px',
+                            lineHeight: 1,
+                          },
+                        },
+                        String(index),
+                      ),
                   h(
                     'span',
                     {
@@ -175,12 +231,13 @@ window.__ModuleLoader__.load({
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        fontWeight: nested ? 400 : 500,
                       },
                     },
                     todo.content,
                   ),
-                ),
-              ),
+                )
+              }),
             )
           : null,
       )
@@ -219,6 +276,9 @@ window.__ModuleLoader__.load({
           return h('div', { style: { padding: '6px 2px', fontSize: '13px', fontWeight: 600 } }, '计划 · 全部完成')
         }
         const done = position.total - position.open
+        const items = Array.from({ length: position.total }, (_, i) => ({
+          status: i < done ? 'completed' : i === done ? 'in_progress' : 'pending',
+        }))
         return h(
           'div',
           { style: { padding: '6px 2px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '10px' } },
@@ -228,7 +288,7 @@ window.__ModuleLoader__.load({
             { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
             position.current,
           ),
-          h(Bar, { done, total: position.total }),
+          h(Bar, { items, index: done + 1 }),
         )
       } catch (error) {
         return h('div', { style: { padding: '6px 2px', fontSize: '12px', opacity: 0.7 } }, '完成一步')
@@ -236,15 +296,58 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots'],
+      inject: ['slots', 'uiConversation'],
       apply(ctx) {
         document.documentElement.dataset.taskSteps = 'applied'
         // The shipped panel is a list entry on conversation.input.dock with id
         // 'todo'; claiming the same id at a lower priority replaces it.
+        // A plan view over the raw `todo/write` events, so the panel keeps the
+        // level and step_id the shipped projection strips.
+        try {
+          ctx.uiConversation.events.register({
+            kind: 'task-steps-plan',
+            match: (event) => (event.type === 'todo/write' ? { id: String(event.seq), role: 'start' } : null),
+            start: (_context, match) => match.event.data.todos,
+            update: (context) => context.state,
+            buildViewNode: (context) =>
+              context.state === undefined
+                ? null
+                : { key: context.key, kind: context.kind, id: context.id, target: 'task-steps-plan', data: context.state },
+            publication: () => 'none',
+          })
+          ctx.uiConversation.views.register({
+            target: 'task-steps-plan',
+            create: () => {
+              let state = null
+              return {
+                empty: null,
+                replace: ({ nodes }) => {
+                  state = nodes.length === 0 ? null : nodes[nodes.length - 1].data
+                  return state
+                },
+                apply: ({ upserts }) => {
+                  if (upserts.length > 0) state = upserts[upserts.length - 1].data
+                  return state
+                },
+              }
+            },
+          })
+        } catch (error) {
+          console.warn('[task-steps] plan view unavailable', error)
+        }
+
         ctx.slots.inject('conversation.input.dock', () => {
           try {
             const dispose = ctx.slots.register(
-              { name: 'conversation.input.dock', id: 'todo', order: 0, priority: -1 },
+              {
+                name: 'conversation.input.dock',
+                id: 'todo',
+                order: 0,
+                priority: -1,
+                inject: (sessionId) => ({
+                  hooks: { plan: ctx.uiConversation.binding(sessionId).target('task-steps-plan') },
+                }),
+              },
               TaskPanel,
             )
             document.documentElement.dataset.taskSteps = 'registered'

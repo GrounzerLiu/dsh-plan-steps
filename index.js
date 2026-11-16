@@ -70,9 +70,16 @@ function normalize(text) {
   return String(text ?? '').trim().replace(/\s+/g, ' ')
 }
 
-/** One stored item, reduced to the two fields the shipped schema declares. */
+/**
+ * One stored item. The mirrored fields — `level` and `stepId` — are the ones a
+ * two-level plan needs; a flat list simply has neither.
+ */
 function toItem(todo) {
-  return { content: String(todo?.content ?? ''), status: todo?.status ?? 'pending' }
+  const item = { content: String(todo?.content ?? ''), status: todo?.status ?? 'pending' }
+  if (Number(todo?.level) === 1) item.level = 1
+  const id = String(todo?.step_id ?? todo?.stepId ?? '').trim()
+  if (id !== '') item.stepId = id
+  return item
 }
 
 /**
@@ -181,7 +188,7 @@ function replayCalls(events) {
       continue
     }
     if (call.name !== 'complete_step' || list === null) continue
-    const at = locate(list, args?.step ?? '', args?.index)
+    const at = locate(list, args?.step_id, args?.step, args?.index)
     if (at !== -1 && list[at].status === 'in_progress') list = advance(list, at)
   }
   return list
@@ -189,7 +196,13 @@ function replayCalls(events) {
 
 /** The model-facing inventory a citation error names. */
 function inventory(items) {
-  return items.map((item, index) => `${index + 1}. ${JSON.stringify(item.content)} [${item.status}]`).join(', ')
+  return items
+    .map((item, index) => {
+      const id = item.stepId === undefined ? '' : ` ${item.stepId}`
+      const indent = (item.level ?? 0) === 1 ? '  ' : ''
+      return `${index + 1}.${indent}${id} ${JSON.stringify(item.content)} [${item.status}]`
+    })
+    .join(', ')
 }
 
 /**
@@ -199,7 +212,11 @@ function inventory(items) {
  */
 function renderTaskState(items) {
   if (items === null || items.length === 0) return ''
-  const lines = items.map((item, index) => `${index + 1}. ${JSON.stringify(item.content)} [${item.status}]`)
+  const lines = items.map((item, index) => {
+    const id = item.stepId === undefined ? '' : ` ${item.stepId}`
+    const indent = (item.level ?? 0) === 1 ? '   ' : ''
+    return `${index + 1}.${indent}${id} ${JSON.stringify(item.content)} [${item.status}]`
+  })
   return (
     "Host task state. This list is the host's, not a message you sent; sign a step off with complete_step once it is finished.\n" +
     lines.join('\n')
@@ -228,14 +245,21 @@ function currentItem(items) {
 }
 
 /**
- * Resolve the cited step against the list, preferring an exact name, then a
- * case-insensitive name, then a 1-based position.
+ * Resolve the cited step against the list, most stable identity first: a
+ * `step_id` survives a replan, a 1-based position survives a retitle, a title
+ * survives neither.
  * @param items - the current list.
+ * @param stepId - the cited stable id, when one was given.
  * @param step - the cited name, when one was given.
  * @param index - the cited 1-based position, when one was given.
  * @returns the 0-based index, or -1.
  */
-function locate(items, step, index) {
+function locate(items, stepId, step, index) {
+  const wantedId = normalize(stepId)
+  if (wantedId !== '') {
+    const hit = items.findIndex((item) => normalize(item.stepId) === wantedId)
+    if (hit !== -1) return hit
+  }
   const wanted = normalize(step)
   if (wanted !== '') {
     const exact = items.findIndex((item) => normalize(item.content) === wanted)
@@ -246,6 +270,154 @@ function locate(items, step, index) {
   }
   if (Number.isInteger(index) && index > 0) return index <= items.length ? index - 1 : -1
   return -1
+}
+
+/**
+ * Split a list into serial units: a level-0 phase owns the level-1 items
+ * directly after it; every other item is its own single-step unit.
+ * @param items - the current list.
+ * @returns the segments, each `{ head, end }` (end exclusive).
+ */
+function segmentsOf(items) {
+  const segments = []
+  for (let i = 0; i < items.length; ) {
+    let end = i + 1
+    if ((items[i].level ?? 0) === 0) {
+      while (end < items.length && (items[end].level ?? 0) === 1) end += 1
+    }
+    segments.push({ head: i, end })
+    i = end
+  }
+  return segments
+}
+
+/**
+ * The first unfinished sub-step of the phase at `index`, when that item is a
+ * phase with sub-steps.
+ * @param items - the current list.
+ * @param index - 0-based index of a candidate phase.
+ * @returns the 0-based index of the first unfinished sub-step, or -1.
+ */
+function firstUnfinishedSubStep(items, index) {
+  if ((items[index]?.level ?? 0) !== 0) return -1
+  for (let i = index + 1; i < items.length && (items[i].level ?? 0) === 1; i += 1) {
+    if (items[i].status !== 'completed') return i
+  }
+  return -1
+}
+
+/**
+ * Sign one item off and promote the next serial unit, mirroring Reasonix's
+ * `AdvanceSerialTodo`: a sub-step promotes its next pending sibling, or hands
+ * the phase back for sign-off once every sibling is done; a phase (or a plain
+ * step) promotes the next unit — a phase's first pending sub-step, or the
+ * phase itself. A phase with unfinished sub-steps does not complete.
+ * @param items - the current list.
+ * @param at - 0-based index of the item being signed off.
+ * @returns the advanced list, as a new array.
+ */
+function advance(items, at) {
+  const next = items.map((item) => ({ ...item }))
+  if (next[at] === undefined || next[at].status !== 'in_progress') return next
+  if (firstUnfinishedSubStep(next, at) >= 0) return next
+  next[at].status = 'completed'
+  if ((next[at].level ?? 0) === 1) {
+    for (let i = at + 1; i < next.length && (next[i].level ?? 0) === 1; i += 1) {
+      if (next[i].status === 'pending') {
+        next[i].status = 'in_progress'
+        return next
+      }
+    }
+    let head = at - 1
+    while (head >= 0 && (next[head].level ?? 0) === 1) head -= 1
+    if (head >= 0) {
+      if (next[head].status !== 'completed') next[head].status = 'in_progress'
+      return next
+    }
+  }
+  if (next.some((item) => item.status === 'in_progress')) return next
+  for (let i = 0; i < next.length; i += 1) {
+    if (next[i].status !== 'pending') continue
+    const sub = firstUnfinishedSubStep(next, i)
+    if (sub >= 0) {
+      if (next[sub].status === 'pending') next[sub].status = 'in_progress'
+      return next
+    }
+    next[i].status = 'in_progress'
+    return next
+  }
+  return next
+}
+
+/**
+ * Validate a submitted list against the serial state machine: at most one
+ * current item, completed work as a prefix, pending work after the current
+ * item, sub-steps in order, and a phase that is current only once its
+ * sub-steps are all done. Mirrors Reasonix's `ValidateSerialTodos`.
+ * @param items - the submitted list.
+ * @returns an error message, or null when the list is valid.
+ */
+function validateSerial(items) {
+  let currentSeen = false
+  for (let i = 0; i < items.length; i += 1) {
+    const status = items[i].status
+    if (status !== 'completed' && status !== 'pending' && status !== 'in_progress') {
+      return `todo ${i + 1} has invalid status ${JSON.stringify(status)}`
+    }
+    if (status === 'in_progress') {
+      if (currentSeen) return `todo ${i + 1} ${JSON.stringify(items[i].content)} is a second in_progress item; a serial list allows exactly one current item`
+      currentSeen = true
+    }
+  }
+  if (items.length > 0 && (items[0].level ?? 0) === 1) {
+    return `todo 1 ${JSON.stringify(items[0].content)} is a level-1 sub-step with no phase above it; add a level-0 phase header or use level 0`
+  }
+  let seenCurrent = false
+  let seenPending = false
+  for (const segment of segmentsOf(items)) {
+    const head = items[segment.head]
+    const headStatus = head.status
+    let subCurrent = false
+    let subPending = false
+    let completedSubs = 0
+    let unfinished = -1
+    for (let i = segment.head + 1; i < segment.end; i += 1) {
+      const sub = items[i]
+      if (sub.status === 'completed') {
+        if (subCurrent || subPending) return `todo ${i + 1} ${JSON.stringify(sub.content)} is completed after unfinished work; completed items must form a prefix`
+        completedSubs += 1
+      } else if (sub.status === 'in_progress') {
+        if (subPending) return `todo ${i + 1} ${JSON.stringify(sub.content)} is in_progress after pending work; the current item must be the first unfinished one`
+        subCurrent = true
+        if (unfinished < 0) unfinished = i
+      } else {
+        subPending = true
+        if (unfinished < 0) unfinished = i
+      }
+    }
+    if (headStatus === 'completed') {
+      if (unfinished >= 0) {
+        return `phase ${segment.head + 1} ${JSON.stringify(head.content)} is completed but sub-step ${unfinished + 1} ${JSON.stringify(items[unfinished].content)} is unfinished`
+      }
+      if (seenCurrent || seenPending) return `phase ${segment.head + 1} ${JSON.stringify(head.content)} is completed after unfinished work; completed items must form a prefix`
+    } else if (headStatus === 'in_progress') {
+      if (unfinished >= 0) {
+        return `phase ${segment.head + 1} ${JSON.stringify(head.content)} cannot be in_progress while sub-step ${unfinished + 1} ${JSON.stringify(items[unfinished].content)} is unfinished; keep the phase pending, finish its sub-steps, then mark it in_progress`
+      }
+      if (seenPending) return `phase ${segment.head + 1} ${JSON.stringify(head.content)} is in_progress after pending work; the current item must be the first unfinished one`
+      seenCurrent = true
+    } else if (subCurrent) {
+      if (seenPending) return `phase ${segment.head + 1} ${JSON.stringify(head.content)} holds the current item after pending work`
+      seenCurrent = true
+    } else if (completedSubs > 0) {
+      if (seenCurrent) return `phase ${segment.head + 1} ${JSON.stringify(head.content)} has completed sub-steps after unfinished work`
+      seenPending = true
+    } else {
+      seenPending = true
+    }
+  }
+  if (items.length > 0 && seenPending && !seenCurrent) return 'the list has pending work but no in_progress item'
+  return null
 }
 
 /**
@@ -261,31 +433,114 @@ function stepSeqOf(events) {
   return null
 }
 
-/**
- * Sign one item off and promote the next pending one, so the list keeps exactly
- * one current item while work remains.
- * @param items - the current list.
- * @param at - 0-based index of the item being signed off.
- * @returns the advanced list, as a new array.
- */
-function advance(items, at) {
-  const next = items.map((item) => ({ ...item }))
-  next[at].status = 'completed'
-  if (next.every((item) => item.status !== 'in_progress')) {
-    const pending = next.findIndex((item) => item.status !== 'completed')
-    if (pending !== -1) next[pending].status = 'in_progress'
-  }
-  return next
-}
-
 const DESCRIPTION =
-  'Sign off ONE step of the current task list as done. The host marks that item completed and moves the ' +
-  'next pending item to in_progress, so you never re-send the list with todo_write to record a completion. ' +
-  'Call it as you finish each step and say what is now true. Cite the step by name, or leave both ' +
-  'identifiers out to sign the current in_progress item. A todo_write that marks a new item completed ' +
-  'without a complete_step sign-off is refused.'
+  'Sign off ONE step of the current task list as done. The host marks that item completed and moves the next ' +
+  'serial unit to in_progress — a sub-step promotes its next sibling, and a phase only becomes current after ' +
+  'every sub-step is done. Cite the item by its step_id (preferred), by name, or by 1-based position. A plan ' +
+  'write that marks a new item completed without a complete_step sign-off is refused.'
 
 export function apply(ctx) {
+  // The plan writer. The shipped `todo_write` stores a flat name list; a
+  // two-level plan needs a phase header, ordered sub-steps and stable step ids,
+  // so this tool owns the structured form and writes the same `todo/write`
+  // snapshot the panel already reads.
+  ctx.tools.register({
+    name: 'plan_write',
+    description:
+      'Record and update a structured task list for the current work. Send the COMPLETE list every call — it replaces ' +
+      'the previous one. The list is two-level: a `level` 0 item is a PHASE (a milestone) and the `level` 1 items ' +
+      'after it are its concrete sub-steps. Keep exactly one item in_progress: a phase stays pending while its ' +
+      'sub-steps run and becomes the current item only after all of them are done, so the phase signs off last. ' +
+      'COPY `step_id` VERBATIM for every item that already has one: it is how a completion stays attached across ' +
+      'retitles and reordering. Give a new item a fresh unique id (e.g. "plan_step_07"). Sign finished items off ' +
+      'with complete_step; do not mark a new item completed here.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        todos: {
+          type: 'array',
+          description: 'The complete task list, in order. Replaces any previous list.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              content: { type: 'string', description: 'Imperative description of the task.' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+              level: { type: 'integer', description: '0 = phase/milestone, 1 = a sub-step of the phase above it.' },
+              step_id: { type: 'string', description: 'Stable identity for this item, copied verbatim on every rewrite.' },
+              activeForm: { type: 'string', description: 'Present-continuous form shown while the item is in progress.' },
+            },
+            required: ['content', 'status'],
+          },
+        },
+      },
+      required: ['todos'],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          message: { type: 'string' },
+        },
+        required: ['message'],
+      },
+      render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
+    },
+    execute: async (args, exec) => {
+      const agent = exec.agent
+      if (agent === undefined) throw new Error('plan_write requires an owning agent session')
+      const raw = args?.todos
+      if (!Array.isArray(raw)) throw new Error('`todos` must be the complete list')
+      const items = []
+      const seenContent = new Set()
+      const seenId = new Set()
+      for (let i = 0; i < raw.length; i += 1) {
+        const entry = raw[i] ?? {}
+        const content = String(entry.content ?? '').trim()
+        if (content === '') throw new Error(`todo ${i + 1}: content is required`)
+        const key = normalize(content)
+        if (seenContent.has(key)) throw new Error(`todo ${i + 1} ${JSON.stringify(content)} repeats an earlier item`)
+        seenContent.add(key)
+        const status = entry.status ?? 'pending'
+        if (status !== 'pending' && status !== 'in_progress' && status !== 'completed') {
+          throw new Error(`todo ${i + 1}: invalid status ${JSON.stringify(status)}`)
+        }
+        const level = Number(entry.level) === 1 ? 1 : 0
+        const stepId = String(entry.step_id ?? '').trim()
+        if (stepId !== '') {
+          if (seenId.has(stepId)) throw new Error(`todo ${i + 1} reuses step_id ${JSON.stringify(stepId)}`)
+          seenId.add(stepId)
+        }
+        const item = { content, status }
+        if (level === 1) item.level = 1
+        if (stepId !== '') item.stepId = stepId
+        items.push(item)
+      }
+      const problem = validateSerial(items)
+      if (problem !== null) throw new Error(problem)
+      agent.session.append(TODO_WRITE, {
+        todos: items.map((item) => ({
+          content: item.content,
+          status: item.status,
+          ...(item.level === 1 ? { level: 1 } : {}),
+          ...(item.stepId === undefined ? {} : { step_id: item.stepId }),
+        })),
+      })
+      const done = items.filter((item) => item.status === 'completed').length
+      const active = items.filter((item) => item.status === 'in_progress').length
+      const pending = items.length - done - active
+      return { message: `Plan updated: ${items.length} items — ${done} completed, ${active} in progress, ${pending} pending.` }
+    },
+    presentCall: (args) => ({
+      card: 'generic',
+      title: 'Update plan',
+      kind: 'other',
+      content: [{ type: 'text', text: Array.isArray(args?.todos) ? `${args.todos.length} items` : 'plan' }],
+    }),
+  })
+
   ctx.tools.register({
     name: 'complete_step',
     description: DESCRIPTION,
@@ -293,13 +548,18 @@ export function apply(ctx) {
       type: 'object',
       additionalProperties: false,
       properties: {
+        step_id: {
+          type: 'string',
+          description:
+            'PREFERRED: the stable step_id of the task-list item this completes, e.g. "plan_step_02". Unlike a title or a number it survives retitles, insertions and reordering.',
+        },
         step: {
           type: 'string',
-          description: 'The task-list item this completes, by name. Omit to sign the current in_progress item.',
+          description: 'The task-list item this completes, by name. Use when the item has no step_id.',
         },
         index: {
           type: 'number',
-          description: 'The 1-based task-list position, used when the name does not resolve uniquely.',
+          description: 'The 1-based task-list position, used when the item has neither a step_id nor a unique name.',
         },
         result: {
           type: 'string',
@@ -326,7 +586,7 @@ export function apply(ctx) {
       if (items === null || items.length === 0) {
         const unreadable = readProjected === null && sessionEvents(agent.session) === undefined
         throw new Error(
-          'this session holds no task list yet; call todo_write with the plan, then sign each step off as you finish it' +
+          'this session holds no task list yet; call plan_write with the plan, then sign each step off as you finish it' +
             (unreadable ? ' (this host exposes neither a projection nor a session log to the plugin)' : ''),
         )
       }
@@ -334,11 +594,18 @@ export function apply(ctx) {
       if (said === '') {
         throw new Error('`result` is required — state what is now true after finishing this step')
       }
-      const cited = args?.step ?? ''
-      const at = locate(items, cited, args?.index)
+      const cited = args?.step ?? args?.step_id ?? ''
+      const at = locate(items, args?.step_id, args?.step, args?.index)
       if (at === -1) {
         throw new Error(
           `${cited === '' ? 'no step was cited and no in_progress item is current' : `step ${JSON.stringify(cited)} matches no task-list item`}; the list is: ${inventory(items)}`,
+        )
+      }
+      if (firstUnfinishedSubStep(items, at) >= 0) {
+        const sub = firstUnfinishedSubStep(items, at)
+        throw new Error(
+          `${JSON.stringify(items[at].content)} is a phase whose sub-steps are unfinished; complete sub-step ` +
+            `${JSON.stringify(items[sub].content)} first, then sign the phase off`,
         )
       }
       const target = items[at]
@@ -477,7 +744,7 @@ export function apply(ctx) {
 
   if (guardEnabled) {
     ctx.tools.guard((exec) => {
-      if (exec.name !== 'todo_write' || exec.agent === undefined) return undefined
+      if ((exec.name !== 'todo_write' && exec.name !== 'plan_write') || exec.agent === undefined) return undefined
       const items = listOf(exec.agent.session)
       if (items === null || items.length === 0) return undefined
       const submitted = exec.arguments?.todos
@@ -602,4 +869,4 @@ export function apply(ctx) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep }

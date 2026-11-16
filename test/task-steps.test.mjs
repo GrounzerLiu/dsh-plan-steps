@@ -3,61 +3,76 @@ import test from 'node:test'
 
 import { __testing } from '../index.js'
 
-const { normalize, locate, advance, replayCalls, renderTaskState } = __testing
+const { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial } = __testing
 
-const list = (...items) => items.map(([content, status]) => ({ content, status }))
+const list = (...items) => items.map(([content, status, extra]) => ({ content, status, ...(extra ?? {}) }))
+const phase = (content, status) => ({ content, status, stepNum: 0 })
+const sub = (content, status, id) => ({ content, status, level: 1, ...(id === undefined ? {} : { stepId: id }) })
 
 test('normalize collapses whitespace so a retitled step still matches', () => {
   assert.equal(normalize('  run   focused\ttests '), 'run focused tests')
   assert.equal(normalize(undefined), '')
 })
 
-test('locate prefers the exact name, then case, then the 1-based position', () => {
-  const items = list(['Alpha', 'in_progress'], ['beta', 'pending'])
-  assert.equal(locate(items, 'Alpha', undefined), 0)
-  assert.equal(locate(items, 'BETA', undefined), 1)
-  assert.equal(locate(items, '', 2), 1)
-  assert.equal(locate(items, 'gamma', undefined), -1)
-  assert.equal(locate(items, '', 3), -1)
+test('locate prefers step_id, then the name, then the position', () => {
+  const items = [sub('alpha', 'in_progress', 'plan_step_01'), sub('beta', 'pending', 'plan_step_02')]
+  assert.equal(locate(items, 'plan_step_02', 'alpha', 1), 1, 'the id wins over name and position')
+  assert.equal(locate(items, '', 'beta', 1), 1, 'the name wins over position')
+  assert.equal(locate(items, '', 'gamma', 2), 1, 'an unknown name falls back to position')
+  assert.equal(locate(items, 'nope', 'gamma', 9), -1)
 })
 
-test('advance completes the step and promotes the next pending one', () => {
-  const items = list(['a', 'in_progress'], ['b', 'pending'], ['c', 'pending'])
-  const next = advance(items, 0)
-  assert.deepEqual(next, list(['a', 'completed'], ['b', 'in_progress'], ['c', 'pending']))
+test('advance keeps a flat list serial', () => {
+  const items = [phase('a', 'in_progress'), phase('b', 'pending')]
+  assert.deepEqual(
+    advance(items, 0).map((item) => item.status),
+    ['completed', 'in_progress'],
+  )
   assert.equal(items[0].status, 'in_progress', 'the input list must not be mutated')
 })
 
-test('advance leaves no current item once the last step is signed off', () => {
-  const next = advance(list(['a', 'completed'], ['b', 'in_progress']), 1)
-  assert.deepEqual(next, list(['a', 'completed'], ['b', 'completed']))
+test('advance moves to the next sub-step before touching the phase', () => {
+  const items = [phase('phase', 'pending'), sub('s1', 'in_progress', 'p1'), sub('s2', 'pending', 'p2')]
+  const next = advance(items, 1)
+  assert.deepEqual(next.map((item) => item.status), ['pending', 'completed', 'in_progress'])
 })
 
-test('replayCalls ignores an unsettled call and a failed one', () => {
-  const events = [
-    { type: 'tool/call', data: { callId: 'w1', name: 'todo_write', arguments: '{"todos":[{"content":"a","status":"in_progress"},{"content":"b","status":"pending"}]}' } },
-    { type: 'tool/result', data: { message: { toolCallId: 'w1', isError: false } } },
-    // settled, failed sign-off: must not move the list
-    { type: 'tool/call', data: { callId: 'c0', name: 'complete_step', arguments: '{"step":"a","result":"x"}' } },
-    { type: 'tool/result', data: { message: { toolCallId: 'c0', isError: true } } },
-    // never settled: the current call, still in flight
-    { type: 'tool/call', data: { callId: 'c1', name: 'complete_step', arguments: '{"step":"a","result":"y"}' } },
-  ]
-  assert.deepEqual(replayCalls(events), list(['a', 'in_progress'], ['b', 'pending']))
+test('advance hands the phase back for sign-off after its last sub-step', () => {
+  const items = [phase('phase', 'pending'), sub('s1', 'completed', 'p1'), sub('s2', 'in_progress', 'p2')]
+  const next = advance(items, 2)
+  assert.deepEqual(next.map((item) => item.status), ['in_progress', 'completed', 'completed'])
 })
 
-test('replayCalls applies a settled sign-off and moves the next step in', () => {
-  const events = [
-    { type: 'tool/call', data: { callId: 'w1', name: 'todo_write', arguments: '{"todos":[{"content":"a","status":"in_progress"},{"content":"b","status":"pending"}]}' } },
-    { type: 'tool/result', data: { message: { toolCallId: 'w1', isError: false } } },
-    { type: 'tool/call', data: { callId: 'c1', name: 'complete_step', arguments: '{"step":"a","result":"done"}' } },
-    { type: 'tool/result', data: { message: { toolCallId: 'c1', isError: false } } },
-  ]
-  assert.deepEqual(replayCalls(events), list(['a', 'completed'], ['b', 'in_progress']))
+test('advance refuses to complete a phase with unfinished sub-steps', () => {
+  const items = [phase('phase', 'in_progress'), sub('s1', 'pending', 'p1')]
+  const next = advance(items, 0)
+  assert.deepEqual(next.map((item) => item.status), ['in_progress', 'pending'])
 })
 
-test('replayCalls stays null without a task list', () => {
-  assert.equal(replayCalls([]), null)
+test('advance promotes the next phase first sub-step after a phase is signed off', () => {
+  const items = [phase('p1', 'in_progress'), phase('p2', 'pending'), sub('s1', 'pending', 'p2a')]
+  const next = advance(items, 0)
+  assert.deepEqual(next.map((item) => item.status), ['completed', 'pending', 'in_progress'])
+})
+
+test('validateSerial accepts a well-formed two-level plan', () => {
+  const items = [phase('p1', 'completed'), phase('p2', 'pending'), sub('s1', 'in_progress', 'p2a'), sub('s2', 'pending', 'p2b')]
+  assert.equal(validateSerial(items), null)
+})
+
+test('validateSerial rejects a second in_progress item', () => {
+  const items = [phase('a', 'in_progress'), phase('b', 'in_progress')]
+  assert.match(validateSerial(items), /second in_progress/)
+})
+
+test('validateSerial rejects a phase made current while its sub-steps are open', () => {
+  const items = [phase('p', 'in_progress'), sub('s1', 'pending', 'p1')]
+  assert.match(validateSerial(items), /cannot be in_progress while sub-step/)
+})
+
+test('validateSerial rejects pending work with no current item', () => {
+  const items = [phase('a', 'completed'), phase('b', 'pending')]
+  assert.match(validateSerial(items), /no in_progress/)
 })
 
 test('renderTaskState carries every item with its status', () => {
@@ -70,31 +85,49 @@ test('renderTaskState carries every item with its status', () => {
 })
 
 test('stepSeqOf finds the step this call belongs to', () => {
-  const { stepSeqOf } = __testing
   assert.equal(stepSeqOf(undefined), null)
   assert.equal(stepSeqOf([{ type: 'turn/start', seq: 1 }]), null)
   assert.equal(stepSeqOf([{ type: 'step/start', seq: 4 }, { type: 'tool/call', seq: 5 }]), 4)
-  assert.equal(
-    stepSeqOf([{ type: 'step/start', seq: 4 }, { type: 'step/start', seq: 9 }, { type: 'tool/call', seq: 10 }]),
-    9,
-  )
-})
-
-test('locate prefers the name over the position', () => {
-  const items = list(['alpha', 'in_progress'], ['beta', 'pending'])
-  // both name and a position are given: the name wins
-  assert.equal(locate(items, 'beta', 1), 1)
-  assert.equal(locate(items, 'alpha', 2), 0)
-  // an unknown name still falls back to the position
-  assert.equal(locate(items, '', 2), 1)
-  assert.equal(locate(items, 'gamma', 2), 1)
-  assert.equal(locate(items, 'gamma', 5), -1)
+  assert.equal(stepSeqOf([{ type: 'step/start', seq: 4 }, { type: 'step/start', seq: 9 }]), 9)
 })
 
 test('parseTodos accepts the initial null and rejects a non-list', () => {
-  const { parseTodos } = __testing
   assert.equal(parseTodos(null), null)
   assert.equal(parseTodos(undefined), null)
-  assert.deepEqual(parseTodos([{ content: 'a', status: 'in_progress' }]), [{ content: 'a', status: 'in_progress' }])
+  assert.deepEqual(parseTodos([{ content: 'a', status: 'in_progress', level: 1, step_id: 'p1' }]), [
+    { content: 'a', status: 'in_progress', level: 1, stepId: 'p1' },
+  ])
   assert.throws(() => parseTodos({ todos: [] }), /array or null/)
+})
+
+test('replayCalls ignores an unsettled or failed call and applies a settled one', () => {
+  const write = {
+    type: 'tool/call',
+    data: {
+      callId: 'w1',
+      name: 'todo_write',
+      arguments:
+        '{"todos":[{"content":"a","status":"pending","level":0},{"content":"b","status":"in_progress","level":1}]}',
+    },
+  }
+  const wrote = { type: 'tool/result', data: { message: { toolCallId: 'w1', isError: false } } }
+  const failed = {
+    type: 'tool/call',
+    data: { callId: 'c0', name: 'complete_step', arguments: '{"step":"a","result":"x"}' },
+  }
+  const failedResult = { type: 'tool/result', data: { message: { toolCallId: 'c0', isError: true } } }
+  const signed = {
+    type: 'tool/call',
+    data: { callId: 'c1', name: 'complete_step', arguments: '{"step":"b","result":"done"}' },
+  }
+  const signedResult = { type: 'tool/result', data: { message: { toolCallId: 'c1', isError: false } } }
+  assert.deepEqual(replayCalls([write, wrote, failed, failedResult]), [
+    { content: 'a', status: 'pending' },
+    { content: 'b', status: 'in_progress', level: 1 },
+  ])
+  assert.deepEqual(replayCalls([write, wrote, signed, signedResult]), [
+    { content: 'a', status: 'in_progress' },
+    { content: 'b', status: 'completed', level: 1 },
+  ])
+  assert.equal(replayCalls([]), null)
 })
