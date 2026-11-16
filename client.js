@@ -104,13 +104,10 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TaskPanel({ useProjection, usePlan }) {
-      // The shipped projection keeps only content/status, so a two-level plan
-      // loses its level and step ids there. When the plugin's own plan view is
-      // wired, read that; otherwise fall back to the shipped projection.
-      const fromPlan = usePlan === undefined ? null : usePlan((state) => state)
-      const raw = Array.isArray(fromPlan) ? fromPlan : (useProjection('todos') ?? [])
-      const todos = raw.map(readItem)
+    function TaskPanel({ useProjection }) {
+      // The shipped projection keeps only content and status, so the level rides
+      // inside the content as a zero-width marker and is stripped here.
+      const todos = (useProjection('todos') ?? []).map(readItem)
       const [open, setOpen] = React.useState(false)
       if (todos.length === 0) return null
       const { done, total, index, current } = positionOf(todos)
@@ -318,46 +315,11 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'uiConversation'],
+      inject: ['slots'],
       apply(ctx) {
         document.documentElement.dataset.taskSteps = 'applied'
         // The shipped panel is a list entry on conversation.input.dock with id
         // 'todo'; claiming the same id at a lower priority replaces it.
-        // A plan view over the raw `todo/write` events, so the panel keeps the
-        // level and step_id the shipped projection strips.
-        try {
-          ctx.uiConversation.events.register({
-            kind: 'task-steps-plan',
-            match: (event) => (event.type === 'todo/write' ? { id: String(event.seq), role: 'start' } : null),
-            start: (_context, match) => match.event.data.todos,
-            update: (context) => context.state,
-            buildViewNode: (context) =>
-              context.state === undefined
-                ? null
-                : { key: context.key, kind: context.kind, id: context.id, target: 'task-steps-plan', data: context.state },
-            publication: () => 'none',
-          })
-          ctx.uiConversation.views.register({
-            target: 'task-steps-plan',
-            create: () => {
-              let state = null
-              return {
-                empty: null,
-                replace: ({ nodes }) => {
-                  state = nodes.length === 0 ? null : nodes[nodes.length - 1].data
-                  return state
-                },
-                apply: ({ upserts }) => {
-                  if (upserts.length > 0) state = upserts[upserts.length - 1].data
-                  return state
-                },
-              }
-            },
-          })
-        } catch (error) {
-          console.warn('[task-steps] plan view unavailable', error)
-        }
-
         ctx.slots.inject('conversation.input.dock', () => {
           try {
             const dispose = ctx.slots.register(
@@ -366,9 +328,6 @@ window.__ModuleLoader__.load({
                 id: 'todo',
                 order: 0,
                 priority: -1,
-                inject: (sessionId) => ({
-                  hooks: { plan: ctx.uiConversation.binding(sessionId).target('task-steps-plan') },
-                }),
               },
               TaskPanel,
             )
