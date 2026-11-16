@@ -301,10 +301,9 @@ window.__ModuleLoader__.load({
         if (position.done === true) {
           return h('div', { style: { padding: '6px 2px', fontSize: '13px', fontWeight: 600 } }, '计划 · 全部完成')
         }
-        const done = position.total - position.open
-        const items = Array.from({ length: position.total }, (_, i) => ({
-          status: i < done ? 'completed' : i === done ? 'in_progress' : 'pending',
-        }))
+        // No bar here: one linear bar cannot show a two-level list truthfully — a
+        // phase can be current while completed sub-steps sit after it — so the row
+        // states the position and the panel, which knows every status, draws it.
         return h(
           'div',
           { style: { padding: '6px 2px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '10px' } },
@@ -314,7 +313,6 @@ window.__ModuleLoader__.load({
             { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
             position.current,
           ),
-          h(Bar, { items, index: done + 1 }),
         )
       } catch (error) {
         return h('div', { style: { padding: '6px 2px', fontSize: '12px', opacity: 0.7 } }, '完成一步')
