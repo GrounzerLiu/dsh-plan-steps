@@ -1,6 +1,6 @@
 {
   "name": "dsh-plan-steps",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "description": "Host-owned plan steps: two-level task lists with stable step ids, one sign-off path, and a plan panel.",
   "exports": {

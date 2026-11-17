@@ -1032,9 +1032,12 @@ export function apply(ctx, config = {}) {
       // A rewrite that does not add a completion is a relabel or a replan, not a
       // claim about work: names are the only identity a shipped item has, so a
       // completed item renamed must not read as a fresh completion.
-      touchPlan(exec.agent.session, stepIndex(sessionEvents(exec.agent.session)))
       const reason = unsignedCompletion(items, submitted)
-      return reason === undefined ? undefined : { reason }
+      if (reason !== undefined) return { reason }
+      // Only a write the guard lets through counts as touching the plan: a
+      // refused one changed nothing, so it must not reset the staleness clock.
+      touchPlan(exec.agent.session, stepIndex(sessionEvents(exec.agent.session)))
+      return undefined
     })
   }
 
@@ -1157,4 +1160,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell, abandonMessage }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell, abandonMessage, stepIndex }

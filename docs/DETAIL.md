@@ -77,7 +77,7 @@ The tools stay registered either way.
 node --test test/
 ```
 
-Nineteen cases over the pure helpers: name normalisation, step resolution
+Twenty-nine cases over the pure helpers: name normalisation, step resolution
 (`step_id` before name before position), the flat and two-level advance rules
 (next sibling, phase sign-off last, phase with open sub-steps refused, next
 phase's first sub-step), serial validation (single current item, phase made
@@ -106,13 +106,6 @@ Checked in a live session:
 Three things a fuller implementation would have are left out on purpose. Each
 one is a decision, not a gap waiting to be found.
 
-**No step ids.** The shipped task list stores a name and a status, so the name
-is the only identity an item has. This plugin could mint ids in a side table
-keyed by name — but a rename breaks that key anyway, and owning an id would mean
-owning the list's write format, which is the shipped tool's job. The guard's
-"completed count first, names second" rule is the cheapest thing that still
-distinguishes a relabel from a completion.
-
 **The hold is soft.** A turn is pulled back at most once, and a second stop is
 allowed. DSH has no core "waiting on the user" state a gate could key on, so a
 hard gate would have to infer intent from text — and a model that is genuinely
@@ -120,16 +113,22 @@ blocked would be trapped in a loop it cannot leave. One hold plus `wait_for_user
 gets the behaviour without that failure mode: a model that ignores the list still
 ends its turn, just visibly.
 
-**The panel stays the shipped one.** The `todos` projection resets at
-`turn/start` by design, so this plugin writes the open list back at the boundary
-instead of replacing the panel. Owning a cross-turn panel means a Client module,
-a wire view and a second source of truth in the UI; that is a different plugin,
-and two panels showing different lists would be worse than one that restores.
+**The panel rides the shipped projection.** The `todos` projection resets at
+`turn/start` by design, and its schema keeps only content and status. The plugin
+replaces the panel, but reads that projection and writes the open list back at the
+boundary instead of owning a second source of truth; the sub-step level rides in
+the content as a zero-width marker because the projection would otherwise drop
+it.
 
-A fourth omission is not a decision but an accepted consequence: any other writer
-of `todo/write` — plan mode seeding, a direct `todo_write` — replaces the list
-wholesale. The host reads the last snapshot, so the two views realign at the next
-write; nothing drifts permanently.
+**Nothing is cached in plugin memory.** The list is the latest `todo/write` event,
+so a fold, a fork, or a restart derives the same list. A cache would be faster and
+would eventually disagree with the log.
+
+Two more behaviours are accepted consequences rather than decisions: any other
+writer of `todo/write` — plan mode seeding, a direct `todo_write` — replaces the
+list wholesale, and the two views realign at the next write; and an abandoned
+plan leaves an empty snapshot behind, so the history of what was dropped lives in
+the `abandon_plan` result rather than in the list.
 
 ## Limits
 
@@ -148,10 +147,10 @@ write; nothing drifts permanently.
   draws a user bubble, the content is at least attributed to the host in the log.
 - The shipped task projection resets on `turn/start`, so the panel shows the
   list only once this turn has written one.
-- Item identity is the item's name, because the shipped task list has no step
-  ids. A rewrite that adds no completion may rename freely; one that adds a
-  completion is checked name by name, so renaming *and* closing in one write is
-  still refused.
+- A list written by the shipped `todo_write` has no step ids, so the guard falls
+  back to names: a rewrite that adds no completion may rename freely, while one
+  that adds a completion is checked name by name. Lists written by `plan_write`
+  carry ids and are matched by them first.
 - The list is read through the plugin's own `sessionProjections` unit
   (`plan-steps/todos`); `deriveMessages()` is still read directly for the
   visible-window check, and a host without the projection seam falls back to

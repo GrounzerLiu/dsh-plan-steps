@@ -107,26 +107,6 @@ window.__ModuleLoader__.load({
       return h('span', { style: { display: 'inline-flex', gap: '3px', alignItems: 'center', flex: 'none' } }, cells)
     }
 
-    function Glyph({ status }) {
-      const color = status === 'completed' ? TOKENS.done : status === 'in_progress' ? TOKENS.accent : TOKENS.idle
-      return h(
-        'span',
-        {
-          style: {
-            width: '16px',
-            height: '16px',
-            flex: 'none',
-            display: 'grid',
-            placeItems: 'center',
-            color,
-            fontSize: '13px',
-            lineHeight: 1,
-          },
-        },
-        status === 'completed' ? '✓' : status === 'in_progress' ? '◍' : '○',
-      )
-    }
-
     function TaskPanel({ useProjection }) {
       // The shipped projection keeps only content and status, so the level rides
       // inside the content as a zero-width marker and is stripped here.

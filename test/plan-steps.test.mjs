@@ -252,3 +252,31 @@ test('an abandonment keeps the reason and the tally', () => {
   assert.match(message, /write a new plan with plan_write/)
   assert.match(abandonMessage([phase('a', 'pending')], 'wrong'), /1 item dropped \(nothing was completed\)/)
 })
+
+test('stepIndex counts steps, not events', () => {
+  const { stepIndex } = __testing
+  const events = [
+    { type: 'session' },
+    { type: 'step/start' },
+    { type: 'tool/call' },
+    { type: 'tool/result' },
+    { type: 'step/start' },
+    { type: 'turn/end' },
+  ]
+  assert.equal(stepIndex(events), 2)
+  assert.equal(stepIndex(undefined), null)
+})
+
+test('touching the plan resets the staleness clock', () => {
+  const { touchPlan, planClock, staleReminder } = __testing
+  const session = {}
+  touchPlan(session, 3)
+  const clock = planClock.get(session)
+  assert.equal(clock.touch, 3)
+  assert.equal(staleReminder(clock, 22, { enabled: true, waiting: false, open: 2, threshold: 20 }), undefined)
+  touchPlan(session, 21)
+  assert.equal(planClock.get(session).touch, 21, 'a later write moves the clock forward')
+  assert.equal(planClock.get(session).touch, 21, 'and never backwards')
+  touchPlan(session, 4)
+  assert.equal(planClock.get(session).touch, 21)
+})

@@ -107,7 +107,7 @@ dsh plugin --profile desktop add github:GrounzerLiu/dsh-plan-steps
 ```
 
 The bundle inserts one row, `include:plan-steps`, and puts `plan_write`,
-`complete_step` and `wait_for_user` into the model's toolset.
+`plan_write`, `complete_step`, `wait_for_user` and `abandon_plan` into the model's toolset.
 
 **The `client:` half needs a tarball / git install.** With `link:` the Web host
 cannot serve `/plugins/<id>/client.js` (the path resolves outside the profile and
