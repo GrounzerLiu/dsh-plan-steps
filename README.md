@@ -20,6 +20,7 @@
 | 守卫 | 列表里还开着的项被 `plan_write` / `todo_write` 直接标成 `completed` 时拒绝。 |
 | 收尾拉回 | 轮末列表还有未完成项时，用 `agent.steer()` 把这一轮拉回来——每轮最多一次。 |
 | `wait_for_user` | 声明「在等用户」，这一轮就不会被拉回。 |
+| `abandon_plan` | 放弃当前计划：清空列表、面板消失，`reason` 必填并留在会话记录里。这是唯一绕过重写连续性校验的写入。 |
 | 上下文召回 | 可见窗口里没有当前列表时，把「Host task state」块注入请求。 |
 | 面板 | 接管输入框上方的任务面板，显示「计划 · 第 N / M 步」+ 当前项 + 分段进度条，展开是两级缩进列表。 |
 | 工具行 | 每次 `complete_step` 也会带同样的位置信息。 |
@@ -99,8 +100,8 @@ dsh plugin --profile desktop add github:GrounzerLiu/dsh-plan-steps
 # 再把 dsh-plan-steps 加进 profile 的 dsh.profile.bundles
 ```
 
-bundle 会插入一行 `include:plan-steps`，并让 `plan_write`、`complete_step`、
-`wait_for_user` 三个工具进入模型工具集。
+bundle 会插入一行 `include:plan-steps`，并让 `plan_write`、`complete_step`、`wait_for_user`、
+`abandon_plan` 四个工具进入模型工具集。
 
 **客户端半需要 tarball / git 安装。** `link:` 安装时 Web 端取不到
 `/plugins/<id>/client.js`（路径落在 profile 之外，浏览器 404），面板不会变样；

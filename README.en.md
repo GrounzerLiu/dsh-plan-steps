@@ -21,6 +21,7 @@ plugin is a rewrite against DSH's event and slot model, not a port.
 | guard | Refuses a `plan_write` / `todo_write` that turns an item `completed` while the host still has it open. |
 | turn hold | Steers the turn back when it is about to close with open items — once per turn. |
 | `wait_for_user` | Declares a wait, so that turn may end with the item open. |
+| `abandon_plan` | Drops the current plan: the list clears, the panel disappears, and the required `reason` stays in the transcript. The only write that bypasses the rewrite continuity rules. |
 | request state | Carries the host list into the request when the visible window has lost it. |
 | dock panel | Replaces the pinned task panel with `计划 · 第 N / M 步` + the current step + a segmented bar, expanded into a nested list. |
 | step row | The same position on every `complete_step` tool row. |

@@ -612,6 +612,23 @@ function staleReminder(clock, current, options) {
   )
 }
 
+/**
+ * The sentence an abandonment returns: what was dropped, and the reason kept in
+ * the transcript.
+ * @param items - the list being abandoned.
+ * @param reason - why it is abandoned.
+ * @returns the tool's message.
+ */
+function abandonMessage(items, reason) {
+  const done = items.filter((item) => item.status === 'completed').length
+  const carried = done === 0 ? 'nothing was completed' : `${done} of ${items.length} had been completed`
+  const plural = items.length === 1 ? '' : 's'
+  return (
+    `Plan abandoned: ${JSON.stringify(reason)}. ${items.length} item${plural} dropped (${carried}). ` +
+    'The list is now empty; write a new plan with plan_write when the next piece of work starts.'
+  )
+}
+
 const DESCRIPTION =
   'Sign off ONE step of the current task list as done. The host marks that item completed and moves the next ' +
   'serial unit to in_progress — a sub-step promotes its next sibling, and a phase only becomes current after ' +
@@ -927,6 +944,61 @@ export function apply(ctx, config = {}) {
     }),
   })
 
+  ctx.tools.register({
+    name: 'abandon_plan',
+    description:
+      'Abandon the current task list instead of completing it. Use it when the plan is wrong, superseded, or the ' +
+      'work is dropped: the list is cleared, the panel disappears, and the reason stays in the transcript. This is ' +
+      'the only write that bypasses the rewrite continuity rules, so the reason is required — signing steps off ' +
+      'with complete_step remains the path for work that was actually finished.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'One line saying why the plan is abandoned; the user reads it in the transcript.',
+        },
+      },
+      required: ['reason'],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          message: { type: 'string' },
+        },
+        required: ['message'],
+      },
+      render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
+    },
+    execute: async (args, exec) => {
+      const agent = exec.agent
+      if (agent === undefined) throw new Error('abandon_plan requires an owning agent session')
+      const reason = String(args?.reason ?? '').trim()
+      if (reason === '') throw new Error('`reason` is required — say in one line why the plan is abandoned')
+      if (reason.length < 4) throw new Error('`reason` is too short to be useful; name what changed')
+      const items = listOf(agent.session)
+      if (items === null || items.length === 0) {
+        throw new Error('there is no task list to abandon; write one with plan_write when work starts')
+      }
+      agent.session.append(TODO_WRITE, { todos: [] })
+      // A dropped list cannot be waiting on the user, and the turn that ended a
+      // plan should not be pulled back for items that no longer exist.
+      waitingSessions.delete(agent.session)
+      heldTurn.delete(agent.session)
+      planClock.delete(agent.session)
+      return { message: abandonMessage(items, reason) }
+    },
+    presentCall: (args) => ({
+      card: 'generic',
+      title: 'Abandon plan',
+      kind: 'other',
+      content: [{ type: 'text', text: String(args?.reason ?? 'Abandoning the task list.') }],
+    }),
+  })
+
   // The canonical list as a projection: the incremental read the host keeps for
   // every session, so a read no longer rescans the log. A host without the seam
   // falls back to the scan in `listOf`.
@@ -1085,4 +1157,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell, abandonMessage }

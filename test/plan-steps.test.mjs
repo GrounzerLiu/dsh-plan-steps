@@ -242,3 +242,13 @@ test('a volatile cell is read at use time, a plain value as-is', () => {
   assert.equal(readCell(true, false), true, 'a plain value passes through')
   assert.equal(readCell({ get() { throw new Error('gone') } }, true), true, 'a broken cell falls back')
 })
+
+test('an abandonment keeps the reason and the tally', () => {
+  const { abandonMessage } = __testing
+  const items = [phase('a', 'completed'), sub('b', 'in_progress'), sub('c', 'pending')]
+  const message = abandonMessage(items, '方案 A 不可行')
+  assert.match(message, /Plan abandoned: "方案 A 不可行"/)
+  assert.match(message, /3 items dropped \(1 of 3 had been completed\)/)
+  assert.match(message, /write a new plan with plan_write/)
+  assert.match(abandonMessage([phase('a', 'pending')], 'wrong'), /1 item dropped \(nothing was completed\)/)
+})
