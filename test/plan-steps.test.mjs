@@ -178,3 +178,17 @@ test('a snapshot keeps the sub-step marker through a round trip', () => {
   assert.equal(back.content, 's1')
   assert.equal(back.stepId, 'id1')
 })
+
+test('continuity lets a finished plan be replaced', () => {
+  const { continuityProblem } = __testing
+  const previous = [phase('调研', 'completed'), sub('写文档', 'completed', 'old_1')]
+  const next = [phase('新的阶段', 'in_progress')]
+  assert.equal(continuityProblem(previous, next), null)
+})
+
+test('continuity still guards a plan with anything open', () => {
+  const { continuityProblem } = __testing
+  const previous = [phase('调研', 'completed'), sub('写文档', 'in_progress', 'old_1')]
+  const next = [phase('新的阶段', 'in_progress')]
+  assert.match(continuityProblem(previous, next), /step_id "old_1"/)
+})

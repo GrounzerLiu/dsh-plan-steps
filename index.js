@@ -407,6 +407,9 @@ function findSame(item, list) {
  */
 function continuityProblem(previous, next) {
   if (previous === null || previous.length === 0) return null
+  // A finished plan is history, not state: once every item is completed there is
+  // no completion left to keep attached, so a new plan may replace it outright.
+  if (previous.every((item) => item.status === 'completed')) return null
   for (const item of previous) {
     if (item.stepId === undefined) continue
     if (next.some((candidate) => candidate.stepId === item.stepId)) continue

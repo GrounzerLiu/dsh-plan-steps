@@ -84,7 +84,7 @@ phase's first sub-step), serial validation (single current item, phase made
 current too early, pending work with no current item), call replay, step
 identity, the stored-state parser, and the state block — plus the four
 continuity rules a rewrite must respect (id preserved, current item kept and not
-regressed, completed history in place, first write and additive replan allowed).
+regressed, completed history in place, first write and additive replan allowed, and a fully completed plan replaced outright).
 
 ## Verification
 

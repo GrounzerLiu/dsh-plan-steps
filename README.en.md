@@ -16,7 +16,7 @@ plugin is a rewrite against DSH's event and slot model, not a port.
 
 | Piece | Effect |
 | --- | --- |
-| `plan_write` | Records a two-level plan: `level` 0 phases, `level` 1 sub-steps, an optional stable `step_id`, exactly one current item. A rewrite is checked for continuity: an existing id is never dropped, the current item is never removed or moved back to pending, and completed history keeps its position. |
+| `plan_write` | Records a two-level plan: `level` 0 phases, `level` 1 sub-steps, an optional stable `step_id`, exactly one current item. A rewrite is checked for continuity: an existing id is never dropped, the current item is never removed or moved back to pending, and completed history keeps its position — once every item is completed the plan is history and a new one may replace it. |
 | `complete_step` | Signs the current `in_progress` item off, appends the advanced list as a `todo/write` snapshot (the panel follows), and names the next step. A phase signs off only after its sub-steps. |
 | guard | Refuses a `plan_write` / `todo_write` that turns an item `completed` while the host still has it open. |
 | turn hold | Steers the turn back when it is about to close with open items — once per turn. |
