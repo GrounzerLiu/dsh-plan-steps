@@ -89,11 +89,14 @@ window.__ModuleLoader__.load({
         const position = i + 1
         const current = !allDone && position === index
         const filled = items[i].status === 'completed'
+        // A phase cell is tall and wide, a sub-step cell short and narrow, so the
+        // bar shows the two levels the list already shows.
+        const nested = (items[i].level ?? 0) === 1
         cells.push(
           h('span', {
             key: i,
             style: {
-              width: '14px',
+              width: nested ? '8px' : '14px',
               height: '4px',
               borderRadius: '2px',
               background: current ? TOKENS.accent : filled ? TOKENS.done : TOKENS.idle,
