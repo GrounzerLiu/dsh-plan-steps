@@ -192,3 +192,19 @@ test('continuity still guards a plan with anything open', () => {
   const next = [phase('新的阶段', 'in_progress')]
   assert.match(continuityProblem(previous, next), /step_id "old_1"/)
 })
+
+test('the guard names the step it wants signed off', () => {
+  const { unsignedCompletion } = __testing
+  const named = [phase('phase', 'in_progress'), sub('detail', 'pending')]
+  const byName = unsignedCompletion(named, [phase('phase', 'completed'), sub('detail', 'pending')])
+  assert.match(byName, /(item 1 of 2, step: "phase")/)
+
+  const identified = [phase('phase', 'in_progress'), sub('detail', 'pending', 'plan_step_07')]
+  const byId = unsignedCompletion(identified, [phase('phase', 'completed'), sub('detail', 'pending', 'plan_step_07')])
+  assert.match(byId, /(item 1 of 2)/)
+
+  const closingSub = unsignedCompletion(identified, [phase('phase', 'in_progress'), sub('detail', 'completed', 'plan_step_07')])
+  assert.match(closingSub, /(step_id "plan_step_07", item 2 of 2)/)
+
+  assert.equal(unsignedCompletion(named, [phase('phase', 'in_progress'), sub('detail', 'pending')]), undefined)
+})

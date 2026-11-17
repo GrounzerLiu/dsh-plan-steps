@@ -92,6 +92,40 @@ function normalize(text) {
 }
 
 /**
+ * The guard's message for a rewrite that closes an item the host still holds
+ * open. It names the item the way `complete_step` wants it, so the reader can
+ * copy one identifier instead of guessing which step was meant.
+ * @param previous - the list the host holds.
+ * @param submitted - the submitted payload.
+ * @returns a refusal reason, or undefined when the rewrite adds no completion.
+ */
+function unsignedCompletion(previous, submitted) {
+  const done = previous.filter((item) => item.status === 'completed').length
+  const nextDone = submitted.filter((item) => item?.status === 'completed').length
+  if (nextDone <= done) return undefined
+  const already = new Set(previous.filter((item) => item.status === 'completed').map((item) => normalize(item.content)))
+  for (const item of submitted) {
+    if (item?.status !== 'completed') continue
+    const key = normalize(item.content)
+    if (already.has(key)) continue
+    const known = previous.find((candidate) => normalize(candidate.content) === key)
+    const index = known === undefined ? -1 : previous.indexOf(known) + 1
+    const identified =
+      known?.stepId === undefined
+        ? index === -1
+          ? ''
+          : ` (item ${index} of ${previous.length}, step: ${JSON.stringify(known.content)})`
+        : ` (step_id ${JSON.stringify(known.stepId)}, item ${index} of ${previous.length})`
+    return (
+      `blocked: todo ${JSON.stringify(item.content)}${identified} is newly completed with no complete_step sign-off. ` +
+      'Call complete_step for it first — the host marks it completed and advances the list for you — ' +
+      'or send todo_write again leaving that item in_progress.'
+    )
+  }
+  return undefined
+}
+
+/**
  * One stored item. The mirrored fields — `level` and `stepId` — are the ones a
  * two-level plan needs; a flat list simply has neither.
  */
@@ -853,24 +887,8 @@ export function apply(ctx, config = {}) {
       // A rewrite that does not add a completion is a relabel or a replan, not a
       // claim about work: names are the only identity a shipped item has, so a
       // completed item renamed must not read as a fresh completion.
-      const done = items.filter((item) => item.status === 'completed').length
-      const nextDone = submitted.filter((item) => item?.status === 'completed').length
-      if (nextDone <= done) return undefined
-      const already = new Set(
-        items.filter((item) => item.status === 'completed').map((item) => normalize(item.content)),
-      )
-      for (const item of submitted) {
-        if (item?.status !== 'completed') continue
-        const key = normalize(item.content)
-        if (already.has(key)) continue
-        return {
-          reason:
-            `blocked: todo ${JSON.stringify(item.content)} is newly completed with no complete_step sign-off. ` +
-            'Call complete_step for it first — the host marks it completed and advances the list for you — ' +
-            'or send todo_write again leaving that item in_progress.',
-        }
-      }
-      return undefined
+      const reason = unsignedCompletion(items, submitted)
+      return reason === undefined ? undefined : { reason }
     })
   }
 
@@ -970,4 +988,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion }
