@@ -89,12 +89,13 @@ window.__ModuleLoader__.load({
           phaseAt = i
         }
       }
-      if ((current.level ?? 0) !== 1) return { phase, step: 0, name: current.content }
+      const phaseName = phaseAt < 0 ? '' : items[phaseAt].content
+      if ((current.level ?? 0) !== 1) return { phase, step: 0, name: current.content, phaseName }
       let step = 0
       for (let i = phaseAt + 1; i <= at; i += 1) {
         if ((items[i].level ?? 0) === 1) step += 1
       }
-      return { phase, step, name: current.content }
+      return { phase, step, name: current.content, phaseName }
     }
 
     /** Position of the current step: the first open item. */
@@ -196,22 +197,24 @@ window.__ModuleLoader__.load({
               cursor: 'pointer',
             },
           },
-          // The checklist icon is the plan's identity; repeating the word costs a
-          // column and adds nothing, so the current item is the first text.
           h('span', { style: { color: TOKENS.secondary, flex: 'none', display: 'grid' } }, h(Icon, { name: 'checklist', size: 18 })),
+          h('span', { style: { flex: 'none', color: TOKENS.secondary, fontSize: '12px', letterSpacing: '0.3px' } }, '计划'),
+          // The name never gives up width; the phase path after it shrinks to
+          // nothing first, so a long plan title never costs the reader the step.
           h(
             'span',
             {
               style: {
-                flex: 'auto',
+                flex: '0 1 auto',
                 minWidth: 0,
+                maxWidth: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 fontWeight: 500,
               },
             },
-            finished ? '全部完成' : path === null ? '计划' : path.name,
+            finished ? '全部完成' : path === null ? '' : path.name,
           ),
           h(
             'span',
