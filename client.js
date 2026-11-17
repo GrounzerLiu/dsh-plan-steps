@@ -199,15 +199,16 @@ window.__ModuleLoader__.load({
           },
           h('span', { style: { color: TOKENS.secondary, flex: 'none', display: 'grid' } }, h(Icon, { name: 'checklist', size: 18 })),
           h('span', { style: { flex: 'none', color: TOKENS.secondary, fontSize: '12px', letterSpacing: '0.3px' } }, '计划'),
-          // The name never gives up width; the phase path after it shrinks to
-          // nothing first, so a long plan title never costs the reader the step.
+          // The name is capped so the progress cluster always sits against the
+          // right edge with air around it; a long title ellipsizes rather than
+          // reaching across the gap.
           h(
             'span',
             {
               style: {
                 flex: '0 1 auto',
                 minWidth: 0,
-                maxWidth: '100%',
+                maxWidth: '58%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -218,17 +219,26 @@ window.__ModuleLoader__.load({
           ),
           h(
             'span',
-            { style: { flex: 'none', fontVariantNumeric: 'tabular-nums', color: TOKENS.secondary, fontSize: '12px' } },
-            ratio,
-          ),
-          h(Bar, { items: todos, index }),
-          h(
-            'span',
             {
-              'aria-hidden': true,
-              style: { color: TOKENS.secondary, flex: 'none', display: 'grid' },
+              style: {
+                marginLeft: 'auto',
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              },
             },
-            h(Icon, { name: open ? 'chevronUp' : 'chevronDown', size: 18 }),
+            h(
+              'span',
+              { style: { fontVariantNumeric: 'tabular-nums', color: TOKENS.secondary, fontSize: '12px' } },
+              ratio,
+            ),
+            h(Bar, { items: todos, index }),
+            h(
+              'span',
+              { 'aria-hidden': true, style: { color: TOKENS.secondary, display: 'grid' } },
+              h(Icon, { name: open ? 'chevronUp' : 'chevronDown', size: 18 }),
+            ),
           ),
         ),
         open
