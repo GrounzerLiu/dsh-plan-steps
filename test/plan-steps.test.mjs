@@ -208,3 +208,37 @@ test('the guard names the step it wants signed off', () => {
 
   assert.equal(unsignedCompletion(named, [phase('phase', 'in_progress'), sub('detail', 'pending')]), undefined)
 })
+
+test('a stale plan is reminded only after the threshold and the cooldown', () => {
+  const { staleReminder } = __testing
+  const clock = { touch: 10, remind: -Infinity }
+  const base = { enabled: true, waiting: false, open: 3, threshold: 20 }
+  assert.equal(staleReminder(clock, 25, base), undefined, '15 steps is not stale yet')
+  const due = staleReminder(clock, 30, base)
+  assert.match(due, /not changed for about 20 steps and 3 items are still open/)
+  assert.match(due, /complete_step/)
+  assert.equal(staleReminder(clock, 35, { ...base, waiting: true }), undefined, 'a declared wait silences it')
+  assert.equal(staleReminder(clock, 35, { ...base, open: 0 }), undefined, 'a closed list needs no reminder')
+  assert.equal(staleReminder(clock, 35, { ...base, enabled: false }), undefined, 'the switch turns it off')
+  const cooled = { touch: 10, remind: 30 }
+  assert.equal(staleReminder(cooled, 35, base), undefined, 'cooldown holds for another threshold')
+  assert.match(staleReminder(cooled, 50, base), /still open/)
+})
+
+test('one open item reads as singular', () => {
+  const { staleReminder } = __testing
+  const text = staleReminder({ touch: 0, remind: -Infinity }, 20, { enabled: true, waiting: false, open: 1, threshold: 20 })
+  assert.match(text, /1 item is still open/)
+})
+
+test('a volatile cell is read at use time, a plain value as-is', () => {
+  const { readCell } = __testing
+  let value = true
+  const cell = { get: () => value }
+  assert.equal(readCell(cell, false), true)
+  value = false
+  assert.equal(readCell(cell, true), false, 'a later write is seen without remounting')
+  assert.equal(readCell(undefined, true), true, 'nothing configured keeps the fallback')
+  assert.equal(readCell(true, false), true, 'a plain value passes through')
+  assert.equal(readCell({ get() { throw new Error('gone') } }, true), true, 'a broken cell falls back')
+})

@@ -116,7 +116,7 @@ the boot graph.
 
 ## Configure
 
-The three switches live on the **plugin's own page**: find the `plan-steps` row in
+The five switches live on the **plugin's own page**: find the `plan-steps` row in
 the Plugin Manager and press Configure.
 
 | Switch | Default | Effect |
@@ -124,6 +124,8 @@ the Plugin Manager and press Configure.
 | Refuse unsigned completions | on | off: `plan_write` / `todo_write` may mark an item completed itself |
 | Pull a turn back while items are open | on | off: a turn may end with the list still open |
 | Rebuild the panel snapshot each turn | on | off: after `turn/start` the panel waits for the model's next write |
+| Remind when the plan goes stale | on | after N steps without touching the list, the request carries a "keep the plan moving" note |
+| Stale reminder threshold (steps) | 20 | how many steps count as stale, and the minimum gap between reminders |
 
 The same fields can be set under the row's `config` in the profile's
 `cordis.patch.yml` as deployment defaults; the plugin page wins. The tools stay

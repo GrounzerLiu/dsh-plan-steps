@@ -56,10 +56,15 @@ export const Config = Schema.object({
   guardUnsignedCompletions: Schema.boolean().default(true).volatile(),
   holdOpenList: Schema.boolean().default(true).volatile(),
   restorePanel: Schema.boolean().default(true).volatile(),
+  remindStalePlan: Schema.boolean().default(true).volatile(),
+  stalePlanSteps: Schema.number().default(20).volatile(),
 })
 
 /** Turns already held once, so a model that will not update its list still ends. */
 const heldTurn = new WeakMap()
+
+/** Last step that touched the plan, and the step last reminded, per session. */
+const planClock = new WeakMap()
 
 /** Sessions that declared they are waiting on the user this turn. */
 const waitingSessions = new WeakSet()
@@ -565,17 +570,84 @@ function stepSeqOf(events) {
   return null
 }
 
+/**
+ * Mark the plan as touched at the current step: every write or sign-off resets
+ * the staleness clock.
+ * @param session - the owning session.
+ * @param step - the step seq this happened in, or null when unknown.
+ */
+function stepIndex(events) {
+  if (!Array.isArray(events)) return null
+  let count = 0
+  for (const event of events) if (event?.type === 'step/start') count += 1
+  return count
+}
+
+function touchPlan(session, step) {
+  if (step === null || step === undefined) return
+  const clock = planClock.get(session)
+  if (clock === undefined) planClock.set(session, { touch: step, remind: -Infinity })
+  else clock.touch = Math.max(clock.touch, step)
+}
+
+/**
+ * Whether a stale-plan reminder is due, and which one.
+ * @param clock - the session's clock, or undefined before the first touch.
+ * @param current - the seq of the step about to run.
+ * @param options - threshold, open count, and whether the turn is waiting.
+ * @returns the reminder text, or undefined when none is due.
+ */
+function staleReminder(clock, current, options) {
+  if (!options.enabled || options.waiting || options.open === 0) return undefined
+  if (clock === undefined || current === null) return undefined
+  const threshold = options.threshold
+  const sinceTouch = current - clock.touch
+  if (sinceTouch < threshold) return undefined
+  if (current - clock.remind < threshold) return undefined
+  const noun = options.open === 1 ? 'item is' : 'items are'
+  return (
+    `Plan check: the task list has not changed for about ${threshold} steps and ${options.open} ${noun} still open. ` +
+    'If a step is finished, call complete_step now; if the list is out of date, rewrite it with plan_write. ' +
+    'If you are waiting on the user, call wait_for_user instead of ending the turn silently.'
+  )
+}
+
 const DESCRIPTION =
   'Sign off ONE step of the current task list as done. The host marks that item completed and moves the next ' +
   'serial unit to in_progress — a sub-step promotes its next sibling, and a phase only becomes current after ' +
   'every sub-step is done. Cite the item by its step_id (preferred), by name, or by 1-based position. A plan ' +
   'write that marks a new item completed without a complete_step sign-off is refused.'
 
+/**
+ * Read one config switch. A `.volatile()` field resolves to a live cell
+ * ({ get, [write] }) rather than a plain value, and reading it on use is what
+ * makes a setting take effect without a remount; a plain value is accepted too.
+ * @param cell - the config entry, possibly a cell.
+ * @param fallback - the value used when nothing is configured.
+ * @returns the current value.
+ */
+function readCell(cell, fallback) {
+  if (cell === undefined || cell === null) return fallback
+  if (typeof cell === 'object' && typeof cell.get === 'function') {
+    try {
+      return cell.get()
+    } catch {
+      return fallback
+    }
+  }
+  return cell
+}
+
 export function apply(ctx, config = {}) {
   // Settings come from the plugin row; an unset key keeps the mechanism on.
-  const guardEnabled = config.guardUnsignedCompletions !== false
-  const holdEnabled = config.holdOpenList !== false
-  const restoreEnabled = config.restorePanel !== false
+  const guardEnabled = () => readCell(config.guardUnsignedCompletions, true) !== false
+  const holdEnabled = () => readCell(config.holdOpenList, true) !== false
+  const restoreEnabled = () => readCell(config.restorePanel, true) !== false
+  const remindEnabled = () => readCell(config.remindStalePlan, true) !== false
+  const staleSteps = () => {
+    const value = Number(readCell(config.stalePlanSteps, 20))
+    return Number.isFinite(value) ? Math.max(2, value) : 20
+  }
 
   // The plan writer. The shipped `todo_write` stores a flat name list; a
   // two-level plan needs a phase header, ordered sub-steps and stable step ids,
@@ -770,6 +842,7 @@ export function apply(ctx, config = {}) {
       // Persist the advance as the same snapshot the shipped tool writes, so
       // the task panel and every log reader see the step close here and now.
       agent.session.append(TODO_WRITE, { todos: snapshotOf(advanced) })
+      touchPlan(agent.session, stepIndex(sessionEvents(agent.session)))
       const next = currentItem(advanced)
       const remaining = advanced.filter((item) => item.status !== 'completed').length
       const tail =
@@ -877,7 +950,7 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  if (guardEnabled) {
+  if (guardEnabled()) {
     ctx.tools.guard((exec) => {
       if ((exec.name !== 'todo_write' && exec.name !== 'plan_write') || exec.agent === undefined) return undefined
       const items = listOf(exec.agent.session)
@@ -887,6 +960,7 @@ export function apply(ctx, config = {}) {
       // A rewrite that does not add a completion is a relabel or a replan, not a
       // claim about work: names are the only identity a shipped item has, so a
       // completed item renamed must not read as a fresh completion.
+      touchPlan(exec.agent.session, stepIndex(sessionEvents(exec.agent.session)))
       const reason = unsignedCompletion(items, submitted)
       return reason === undefined ? undefined : { reason }
     })
@@ -896,7 +970,7 @@ export function apply(ctx, config = {}) {
   // thing that reopens a step: the loop re-reads its inbox, finds this message,
   // and runs another step instead of committing the boundary. One hold per turn
   // bounds a model that will not update the list — it ends on the second stop.
-  if (holdEnabled) {
+  if (holdEnabled()) {
     ctx.on('agent/turn-stopping', ({ agent, turn, signal }) => {
       if (agent === undefined || signal?.aborted === true) return
       if (waitingSessions.has(agent.session)) return
@@ -937,7 +1011,7 @@ export function apply(ctx, config = {}) {
     // a turn writes the open list back as its own snapshot: the panel is there
     // when the turn starts instead of after the model happens to re-send it.
     const restored = restoredTurns.get(session)
-    if (restoreEnabled && restored !== payload.turn) {
+    if (restoreEnabled() && restored !== payload.turn) {
       restoredTurns.set(session, payload.turn)
       try {
         session.append(TODO_WRITE, { todos: snapshotOf(items) })
@@ -945,11 +1019,34 @@ export function apply(ctx, config = {}) {
         // A read-only or closing session keeps its own behaviour.
       }
     }
-    if (alreadyStated(payload.agent)) return decision
-    const text = renderTaskState(items)
-    if (text === '') return decision
+    const extra = []
+    if (!alreadyStated(payload.agent)) {
+      const text = renderTaskState(items)
+      if (text !== '') extra.push(makeMessage(text))
+    }
+    if (remindEnabled()) {
+      const current = stepIndex(sessionEvents(session))
+      // The clock starts when this plugin first sees the session, so a list that
+      // was already open counts its staleness from now rather than from a write
+      // it may never receive.
+      if (current !== null && planClock.get(session) === undefined) {
+        planClock.set(session, { touch: current, remind: -Infinity })
+      }
+      const text = staleReminder(planClock.get(session), current, {
+        enabled: remindEnabled(),
+        waiting: waitingSessions.has(session),
+        open: items.filter((item) => item.status !== 'completed').length,
+        threshold: staleSteps(),
+      })
+      if (text !== undefined) {
+        extra.push(makeMessage(text))
+        const clock = planClock.get(session)
+        if (clock !== undefined) clock.remind = current
+      }
+    }
+    if (extra.length === 0) return decision
     try {
-      return { ...decision, messages: [...decision.messages, makeMessage(text)] }
+      return { ...decision, messages: [...decision.messages, ...extra] }
     } catch {
       return decision
     }
@@ -962,7 +1059,7 @@ export function apply(ctx, config = {}) {
   ctx.on('session/event', (session, event) => {
     if (event?.type !== 'turn/start') return
     waitingSessions.delete(session)
-    if (restoreEnabled !== true) return
+    if (restoreEnabled() !== true) return
     // Appending inside the turn/start dispatch does not land, so the snapshot is
     // written on the next macrotask, once the boundary has committed. The
     // pre-step restore stays as the fallback when this one does not run.
@@ -988,4 +1085,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell }
