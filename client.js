@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
         'm424-408-86-86q-11-11-28-11t-28 11q-11 11-11 28t11 28l114 114q12 12 28 12t28-12l226-226q11-11 11-28t-11-28q-11-11-28-11t-28 11L424-408Zm56 328q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Z',
       chevronDown: 'M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z',
       chevronUp: 'm296-345-56-56 240-240 240 240-56 56-184-184-184 184Z',
+      arrow: 'm560-240-56-58 142-142H160v-80h486L504-662l56-58 240 240-240 240Z',
     }
 
     function Icon({ name, size, color }) {
@@ -69,20 +70,31 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The current item, prefixed with its phase when it is a sub-step, so a
-     * two-level plan reads as "phase > step" instead of a bare name.
+     * Where the current item sits, as numbers plus its own name: `1 → 2 写笔记`
+     * means the second sub-step of the first phase. Content can be arbitrarily
+     * long, so only the name is carried — never the phase text.
      * @param items - the parsed list.
      * @param current - the current item, or null.
-     * @returns text for the header, or the empty string.
+     * @returns { phase, step, name } with step 0 for a phase itself, or null.
      */
-    function currentText(items, current) {
-      if (current === null) return ''
+    function currentPath(items, current) {
+      if (current === null) return null
       const at = items.indexOf(current)
-      if ((current.level ?? 0) !== 1 || at < 0) return current.content
-      for (let i = at - 1; i >= 0; i -= 1) {
-        if ((items[i].level ?? 0) === 0) return items[i].content + ' › ' + current.content
+      if (at < 0) return null
+      let phase = 0
+      let phaseAt = -1
+      for (let i = 0; i <= at; i += 1) {
+        if ((items[i].level ?? 0) === 0) {
+          phase += 1
+          phaseAt = i
+        }
       }
-      return current.content
+      if ((current.level ?? 0) !== 1) return { phase, step: 0, name: current.content }
+      let step = 0
+      for (let i = phaseAt + 1; i <= at; i += 1) {
+        if ((items[i].level ?? 0) === 1) step += 1
+      }
+      return { phase, step, name: current.content }
     }
 
     /** Position of the current step: the first open item. */
@@ -146,7 +158,7 @@ window.__ModuleLoader__.load({
       // items are done instead.
       const finished = done === total
       const ratio = '已完成 ' + String(done) + '/' + String(total)
-      const now = finished ? '全部完成' : currentText(todos, current)
+      const path = finished ? null : currentPath(todos, current)
       return h(
         'section',
         {
@@ -186,19 +198,7 @@ window.__ModuleLoader__.load({
           },
           h('span', { style: { color: TOKENS.secondary, flex: 'none', display: 'grid' } }, h(Icon, { name: 'checklist', size: 18 })),
           h('span', { style: { fontWeight: 600, flex: 'none', letterSpacing: '0.2px' } }, '计划'),
-          h(
-            'span',
-            {
-              style: {
-                flex: 'none',
-                fontVariantNumeric: 'tabular-nums',
-                color: finished ? TOKENS.done : TOKENS.secondary,
-                fontSize: '12px',
-              },
-            },
-            ratio,
-          ),
-          h('span', { 'aria-hidden': true, style: { color: TOKENS.idle, flex: 'none' } }, '|'),
+          h('span', { 'aria-hidden': true, style: { color: TOKENS.idle, flex: 'none' } }, '·'),
           h(
             'span',
             {
@@ -208,11 +208,14 @@ window.__ModuleLoader__.load({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: finished ? TOKENS.done : TOKENS.title,
-                opacity: finished ? 0.8 : 1,
               },
             },
-            now,
+            finished ? '全部完成' : path === null ? '' : path.name,
+          ),
+          h(
+            'span',
+            { style: { flex: 'none', fontVariantNumeric: 'tabular-nums', color: TOKENS.secondary, fontSize: '12px' } },
+            ratio,
           ),
           h(Bar, { items: todos, index }),
           h(
@@ -356,15 +359,32 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { style: { padding: '6px 2px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '10px' } },
+          h('span', { style: { flex: 'none', fontWeight: 600, whiteSpace: 'nowrap' } }, '计划'),
           h(
             'span',
-            { style: { whiteSpace: 'nowrap', fontWeight: 600 } },
-            '已完成 ' + String(position.total - position.open) + '/' + String(position.total),
+            {
+              style: {
+                minWidth: 0,
+                flex: 'auto',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              },
+            },
+            position.current,
           ),
           h(
             'span',
-            { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-            '当前：' + position.current,
+            {
+              style: {
+                flex: 'none',
+                whiteSpace: 'nowrap',
+                fontSize: '12px',
+                fontVariantNumeric: 'tabular-nums',
+                color: TOKENS.secondary,
+              },
+            },
+            '已完成 ' + String(position.total - position.open) + '/' + String(position.total),
           ),
         )
       } catch (error) {
