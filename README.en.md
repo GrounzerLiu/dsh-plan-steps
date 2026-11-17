@@ -5,7 +5,7 @@
 Plan steps for DeepSeek Harness: `plan_write` records a two-level plan,
 `complete_step` signs one item off and the host advances the list, a guard
 refuses an unsigned completion, a turn is pulled back while items are open, and
-the panel shows `计划 · 第 N / M 步` live.
+the panel shows `计划 · 已完成 N / M` and the current item live.
 
 The design follows [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) —
 its `todo_write` / `complete_step` / `AdvanceSerialTodo` semantics: two-level
@@ -23,7 +23,7 @@ plugin is a rewrite against DSH's event and slot model, not a port.
 | `wait_for_user` | Declares a wait, so that turn may end with the item open. |
 | `abandon_plan` | Drops the current plan: the list clears, the panel disappears, and the required `reason` stays in the transcript. The only write that bypasses the rewrite continuity rules. |
 | request state | Carries the host list into the request when the visible window has lost it. |
-| dock panel | Replaces the pinned task panel with `计划 · 第 N / M 步` + the current step + a segmented bar, expanded into a nested list. |
+| dock panel | Replaces the pinned task panel with `计划 · 已完成 N / M` + `当前：phase › step` + a segmented bar, expanded into a nested list. |
 | step row | The same position on every `complete_step` tool row. |
 
 The list is the latest `todo/write` event in the session log, so a fold, a fork,

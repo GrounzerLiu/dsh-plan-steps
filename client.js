@@ -68,6 +68,23 @@ window.__ModuleLoader__.load({
       return { ...item, content: nested ? raw.slice(1) : raw, level: nested ? 1 : 0 }
     }
 
+    /**
+     * The current item, prefixed with its phase when it is a sub-step, so a
+     * two-level plan reads as "phase > step" instead of a bare name.
+     * @param items - the parsed list.
+     * @param current - the current item, or null.
+     * @returns text for the header, or the empty string.
+     */
+    function currentText(items, current) {
+      if (current === null) return ''
+      const at = items.indexOf(current)
+      if ((current.level ?? 0) !== 1 || at < 0) return current.content
+      for (let i = at - 1; i >= 0; i -= 1) {
+        if ((items[i].level ?? 0) === 0) return items[i].content + ' › ' + current.content
+      }
+      return current.content
+    }
+
     /** Position of the current step: the first open item. */
     function positionOf(todos) {
       const done = todos.filter((item) => item.status === 'completed').length
@@ -124,8 +141,12 @@ window.__ModuleLoader__.load({
       }, [])
       if (todos.length === 0) return null
       const { done, total, index, current } = positionOf(todos)
-      const label = '计划 · 第 ' + String(index) + ' / ' + String(total) + ' 步'
-      const headline = current === null ? (done === total ? '全部完成' : '') : current.content
+      // Position is not progress: a phase can be current while its completed
+      // sub-steps sit after it, so the index can move backwards. Show how many
+      // items are done instead.
+      const finished = done === total
+      const ratio = '已完成 ' + String(done) + '/' + String(total)
+      const now = finished ? '全部完成' : currentText(todos, current)
       return h(
         'section',
         {
@@ -164,7 +185,20 @@ window.__ModuleLoader__.load({
             },
           },
           h('span', { style: { color: TOKENS.secondary, flex: 'none', display: 'grid' } }, h(Icon, { name: 'checklist', size: 18 })),
-          h('span', { style: { fontWeight: 500, flex: 'none' } }, label),
+          h('span', { style: { fontWeight: 600, flex: 'none', letterSpacing: '0.2px' } }, '计划'),
+          h(
+            'span',
+            {
+              style: {
+                flex: 'none',
+                fontVariantNumeric: 'tabular-nums',
+                color: finished ? TOKENS.done : TOKENS.secondary,
+                fontSize: '12px',
+              },
+            },
+            ratio,
+          ),
+          h('span', { 'aria-hidden': true, style: { color: TOKENS.idle, flex: 'none' } }, '|'),
           h(
             'span',
             {
@@ -174,10 +208,11 @@ window.__ModuleLoader__.load({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: TOKENS.secondary,
+                color: finished ? TOKENS.done : TOKENS.title,
+                opacity: finished ? 0.8 : 1,
               },
             },
-            headline,
+            now,
           ),
           h(Bar, { items: todos, index }),
           h(
@@ -321,11 +356,15 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { style: { padding: '6px 2px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '10px' } },
-          h('span', { style: { whiteSpace: 'nowrap', fontWeight: 600 } }, '计划 · 第 ' + String(position.index) + ' / ' + String(position.total) + ' 步'),
+          h(
+            'span',
+            { style: { whiteSpace: 'nowrap', fontWeight: 600 } },
+            '已完成 ' + String(position.total - position.open) + '/' + String(position.total),
+          ),
           h(
             'span',
             { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-            position.current,
+            '当前：' + position.current,
           ),
         )
       } catch (error) {
