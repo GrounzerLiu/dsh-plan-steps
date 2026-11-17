@@ -4,7 +4,7 @@
 
 给 DeepSeek Harness 用的「计划步骤」：`plan_write` 记录两级计划，`complete_step`
 一项一项签核并由宿主推进，守卫拒绝未签核的完成，列表还开着时轮末会被拉回，面板上
-实时显示「计划 · 已完成 N / M」与当前项。
+实时显示当前项与「已完成 N / M」。
 
 设计参考了 [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 的
 `todo_write` / `complete_step` / `AdvanceSerialTodo` 语义（两级阶段与子步骤、稳定
@@ -22,7 +22,7 @@
 | `wait_for_user` | 声明「在等用户」，这一轮就不会被拉回。 |
 | `abandon_plan` | 放弃当前计划：清空列表、面板消失，`reason` 必填并留在会话记录里。这是唯一绕过重写连续性校验的写入。 |
 | 上下文召回 | 可见窗口里没有当前列表时，把「Host task state」块注入请求。 |
-| 面板 | 接管输入框上方的任务面板，显示「计划 · 已完成 N / M · 当前：阶段 › 步骤」+ 分段进度条，展开是两级缩进列表。 |
+| 面板 | 接管输入框上方的任务面板，显示当前项名字 + 「已完成 N / M」+ 分段进度条，展开是两级缩进列表。 |
 | 工具行 | 每次 `complete_step` 也会带同样的位置信息。 |
 
 列表本身是会话日志里最后一条 `todo/write` 事件，所以折叠、分支、重启之后推导出的

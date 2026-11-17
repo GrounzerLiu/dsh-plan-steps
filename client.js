@@ -196,9 +196,9 @@ window.__ModuleLoader__.load({
               cursor: 'pointer',
             },
           },
+          // The checklist icon is the plan's identity; repeating the word costs a
+          // column and adds nothing, so the current item is the first text.
           h('span', { style: { color: TOKENS.secondary, flex: 'none', display: 'grid' } }, h(Icon, { name: 'checklist', size: 18 })),
-          h('span', { style: { fontWeight: 600, flex: 'none', letterSpacing: '0.2px' } }, '计划'),
-          h('span', { 'aria-hidden': true, style: { color: TOKENS.idle, flex: 'none' } }, '·'),
           h(
             'span',
             {
@@ -208,9 +208,10 @@ window.__ModuleLoader__.load({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
+                fontWeight: 500,
               },
             },
-            finished ? '全部完成' : path === null ? '' : path.name,
+            finished ? '全部完成' : path === null ? '计划' : path.name,
           ),
           h(
             'span',
