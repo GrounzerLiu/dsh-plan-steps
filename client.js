@@ -344,6 +344,10 @@ window.__ModuleLoader__.load({
         holdHint: '一轮要结束时若还有未完成任务，自动拉回来继续（每轮一次）',
         restore: '跨轮保留进度',
         restoreHint: '每轮开始时重建任务面板，否则要等下一次写入才显示',
+        remind: '计划久未更新时提醒',
+        remindHint: '连续若干步没碰计划、且还有未完成项时，往请求里塞一句提醒',
+        steps: '提醒阈值（步）',
+        stepsHint: '多少步算久未更新，也是两次提醒之间的最小间隔',
       },
       en: {
         title: 'Plan steps',
@@ -353,22 +357,29 @@ window.__ModuleLoader__.load({
         holdHint: 'A turn that is about to end with open items is pulled back once',
         restore: 'Keep the panel across turns',
         restoreHint: 'Rebuild the task panel at the start of a turn',
+        remind: 'Remind when the plan goes stale',
+        remindHint: 'After N steps without touching the list, the request carries a reminder',
+        steps: 'Stale reminder threshold (steps)',
+        stepsHint: 'How many steps count as stale, and the gap between reminders',
       },
     }
 
     const SETTINGS_ROWS = [
-      ['guardUnsignedCompletions', 'guard', 'guardHint'],
-      ['holdOpenList', 'hold', 'holdHint'],
-      ['restorePanel', 'restore', 'restoreHint'],
+      ['guardUnsignedCompletions', 'guard', 'guardHint', 'switch'],
+      ['holdOpenList', 'hold', 'holdHint', 'switch'],
+      ['restorePanel', 'restore', 'restoreHint', 'switch'],
+      ['remindStalePlan', 'remind', 'remindHint', 'switch'],
+      ['stalePlanSteps', 'steps', 'stepsHint', 'number'],
     ]
 
-    /** The three switches, shared by the row page and the bundle section. */
-    function Toggles({ value, writable, onToggle, label }) {
+    /** The settings rows: a switch per rule, a number for the threshold. */
+    function Toggles({ value, writable, onChange, label }) {
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
-        SETTINGS_ROWS.map(([key, dictKey, hintKey]) => {
+        SETTINGS_ROWS.map(([key, dictKey, hintKey, kind]) => {
           const on = value[key] !== false
+          const disabled = writable === false
           return h(
             'div',
             { key, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
@@ -382,77 +393,128 @@ window.__ModuleLoader__.load({
                 label(hintKey),
               ),
             ),
-            h(
-              'button',
-              {
-                type: 'button',
-                role: 'switch',
-                'aria-checked': on,
-                disabled: writable === false,
-                onClick: () => onToggle(key, !on),
-                style: {
-                  width: '36px',
-                  height: '20px',
-                  flex: 'none',
-                  borderRadius: '999px',
-                  border: 'none',
-                  cursor: writable === false ? 'default' : 'pointer',
-                  background: on ? 'var(--dsw-alias-state-business-primary, #4c8dff)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,0.4))',
-                  position: 'relative',
-                  transition: 'background 120ms ease',
-                },
-              },
-              h('span', {
-                style: {
-                  position: 'absolute',
-                  top: '2px',
-                  left: on ? '18px' : '2px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  background: '#fff',
-                  transition: 'left 120ms ease',
-                },
-              }),
-            ),
+            kind === 'number'
+              ? h('input', {
+                  type: 'number',
+                  min: 2,
+                  step: 1,
+                  value: String(Number(value[key]) || 20),
+                  disabled,
+                  onChange: (event) => {
+                    const next = Number(event.target.value)
+                    if (Number.isFinite(next) && next >= 2) onChange(key, next)
+                  },
+                  style: {
+                    width: '72px',
+                    flex: 'none',
+                    padding: '3px 6px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+                    background: 'transparent',
+                    color: 'var(--dsw-alias-label-primary, currentColor)',
+                    fontSize: '13px',
+                  },
+                })
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    role: 'switch',
+                    'aria-checked': on,
+                    disabled,
+                    onClick: () => onChange(key, !on),
+                    style: {
+                      width: '36px',
+                      height: '20px',
+                      flex: 'none',
+                      borderRadius: '999px',
+                      border: 'none',
+                      cursor: disabled ? 'default' : 'pointer',
+                      background: on ? 'var(--dsw-alias-state-business-primary, #4c8dff)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,0.4))',
+                      position: 'relative',
+                      transition: 'background 120ms ease',
+                    },
+                  },
+                  h('span', {
+                    style: {
+                      position: 'absolute',
+                      top: '2px',
+                      left: on ? '18px' : '2px',
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      background: '#fff',
+                      transition: 'left 120ms ease',
+                    },
+                  }),
+                ),
           )
         }),
       )
     }
 
-    /** The row's own Configure page; the owner hands it {view, form}. */
-    function SettingsCard({ form, view, label }) {
-      if (view !== 'page' || form === undefined) return null
-      const state = form.state ?? {}
-      return h(Toggles, {
-        value: state.value ?? {},
-        writable: state.writable !== false,
-        onToggle: (key, next) => void form.mutate([{ op: 'set', path: [key], value: next }], state.revision),
-        label,
-      })
+    /**
+     * The configuration page. The owner hands `{view, form}` to an entry in both
+     * slots — the row's page and the bundle page — so one component serves both
+     * and the plugin never has to look the form up itself.
+     */
+    /** Set by apply(): the settings service, when the host exposes it. */
+    let configFormsService
+
+    /**
+     * The form for this plugin's row, looked up by namespace. A row the package
+     * patch inserts is addressed as `include:<row id>`; a row the user configured
+     * keeps its own id.
+     * @returns a ConfigFormController, or undefined.
+     */
+    function planForm() {
+      if (configFormsService === undefined) return undefined
+      for (const ns of ['plan-steps', 'include:plan-steps']) {
+        try {
+          const form = configFormsService.get(ns)
+          if (form !== undefined && form !== null) return form
+        } catch {
+          // A host that does not serve that namespace simply has no form here.
+        }
+      }
+      return undefined
     }
 
-    /** The same switches as a section on the bundle's own page. */
-    function DetailSection({ form, label }) {
-      const snapshot = React.useSyncExternalStore(
-        (listener) => form.subscribe(listener),
-        () => form.getSnapshot(),
+    const NO_SOURCE = { subscribe: () => () => {}, getSnapshot: () => undefined }
+
+    /** Subscribe to a controller's snapshot; tolerates a missing one. */
+    function useSnapshot(controller) {
+      const source = controller === undefined ? NO_SOURCE : controller
+      return React.useSyncExternalStore(
+        (listener) => source.subscribe(listener),
+        () => source.getSnapshot(),
       )
-      const value = snapshot?.value ?? {}
-      return h(Toggles, {
-        value,
-        writable: snapshot?.writable !== false,
-        onToggle: (key, next) => void form.set(key, next),
-        label,
-      })
+    }
+
+    function PlanConfig({ view, form, label }) {
+      if (view !== 'page') return null
+      // The owner passes a form when it resolves one for this bundle. When it does
+      // not, fall back to the settings service so the page still works.
+      const controller = form === undefined ? planForm() : undefined
+      const live = useSnapshot(controller)
+      const state = form === undefined ? live : form.state
+      if (state === undefined) return null
+      const value = state.value ?? {}
+      const writable = state.writable !== false
+      const write = (key, next) =>
+        controller !== undefined
+          ? void controller.set(key, next)
+          : void form.mutate([{ op: 'set', path: [key], value: next }], state.revision)
+      return h(Toggles, { value, writable, onChange: write, label })
     }
 
     return {
-      inject: ['slots', 'configForms', 'locale'],
+      inject: ['slots', 'locale', 'configForms'],
       apply(ctx) {
-        // The plugin page shows a card a plugin contributes; a Config alone only
-        // validates and persists. Register the card while the Host serves this
-        // entry, and drive it through the same form the Host projects.
+        configFormsService = ctx.configForms
+        // Two cells, one component. Both slots hand the entry {view, form}; the
+        // registrations stay unconditional because the page only draws a
+        // configuration cell that a plugin registered.
         try {
           const t = ctx.locale === undefined ? (key) => SETTINGS_TEXT.zh[key] : ctx.locale.bind(SETTINGS_NS)
           if (ctx.locale !== undefined) ctx.locale.register(SETTINGS_NS, SETTINGS_TEXT)
@@ -469,28 +531,25 @@ window.__ModuleLoader__.load({
                     label: () => t('title'),
                     inject: () => ({ label: (key) => t(key) }),
                   },
-                  SettingsCard,
+                  PlanConfig,
                 )
               }),
             'plan-steps: row settings',
           )
-          const form = ctx.configForms.get('plan-steps')
-          if (form !== undefined && form !== null) {
-            ctx.effect(
-              () =>
-                ctx.slots.inject('plugins.bundle.config', () =>
-                  ctx.slots.register(
-                    {
-                      name: 'plugins.bundle.config',
-                      key: 'dsh-plan-steps',
-                      inject: () => ({ form, label: (key) => t(key) }),
-                    },
-                    DetailSection,
-                  ),
+          ctx.effect(
+            () =>
+              ctx.slots.inject('plugins.bundle.config', () =>
+                ctx.slots.register(
+                  {
+                    name: 'plugins.bundle.config',
+                    key: 'dsh-plan-steps',
+                    inject: () => ({ label: (key) => t(key) }),
+                  },
+                  PlanConfig,
                 ),
-              'plan-steps: bundle config',
-            )
-          }
+              ),
+            'plan-steps: bundle config',
+          )
         } catch (error) {
           document.documentElement.dataset.planCard = 'error: ' + String(error && error.message)
           console.warn('[plan-steps] settings card unavailable', error)
