@@ -629,6 +629,72 @@ function abandonMessage(items, reason) {
   )
 }
 
+/**
+ * Resolve the item a sign-off cites and refuse the cases that are not a
+ * sign-off: no list, no result, an unresolvable citation, a phase with open
+ * sub-steps, or an item that is not the current one. Pulled out of the tool so
+ * each refusal is a unit test instead of a live run.
+ * @param items - the parsed list, or null when the session has none.
+ * @param args - the tool arguments.
+ * @param options - { unreadable } adds the host caveat to the no-list message.
+ * @returns { at, said, item } or { already: true, item }.
+ */
+function signOffStep(items, args, options) {
+  if (items === null || items.length === 0) {
+    throw new Error(
+      'this session holds no task list yet; call plan_write with the plan, then sign each step off as you finish it' +
+        (options?.unreadable === true ? ' (this host exposes neither a projection nor a session log to the plugin)' : ''),
+    )
+  }
+  const said = String(args?.result ?? '').trim()
+  if (said === '') {
+    throw new Error('`result` is required — state what is now true after finishing this step')
+  }
+  const cited = args?.step ?? args?.step_id ?? ''
+  const at = locate(items, args?.step_id, args?.step, args?.index)
+  if (at === -1) {
+    throw new Error(
+      `${cited === '' ? 'no step was cited and no in_progress item is current' : `step ${JSON.stringify(cited)} matches no task-list item`}; the list is: ${inventory(items)}`,
+    )
+  }
+  const openSub = firstUnfinishedSubStep(items, at)
+  if (openSub >= 0) {
+    throw new Error(
+      `${JSON.stringify(items[at].content)} is a phase whose sub-steps are unfinished; complete sub-step ` +
+        `${JSON.stringify(items[openSub].content)} first, then sign the phase off`,
+    )
+  }
+  const item = items[at]
+  if (item.status === 'completed') return { already: true, item }
+  if (item.status !== 'in_progress') {
+    const current = currentItem(items)
+    throw new Error(
+      `step ${JSON.stringify(item.content)} is ${item.status}; complete_step only signs the current in_progress item` +
+        (current === undefined
+          ? ' — mark the item you are working on with todo_write first'
+          : ` — finish ${JSON.stringify(current.content)} first`),
+    )
+  }
+  return { at, said, item }
+}
+
+/**
+ * Refuse a second sign-off in one step. The claim is taken before the append and
+ * before any await, so a second call in the same parallel batch is refused
+ * instead of signing a list the first call already moved.
+ * @param claimedAt - the step a claim was already taken in, or undefined.
+ * @param stepSeq - the step being signed in, or null when unknown.
+ * @throws when this step already signed something off.
+ */
+function checkClaim(claimedAt, stepSeq) {
+  if (stepSeq === null || claimedAt === undefined) return
+  if (claimedAt !== stepSeq) return
+  throw new Error(
+    'only one complete_step per step: a second sign-off in the same batch signs against the list as it stood ' +
+      'before the first one advanced it. Sign the next item in your next step.',
+  )
+}
+
 const DESCRIPTION =
   'Sign off ONE step of the current task list as done. The host marks that item completed and moves the next ' +
   'serial unit to in_progress — a sub-step promotes its next sibling, and a phase only becomes current after ' +
@@ -804,57 +870,20 @@ export function apply(ctx, config = {}) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('complete_step requires an owning agent session')
       const items = listOf(agent.session)
-      if (items === null || items.length === 0) {
-        const unreadable = readProjected === null && sessionEvents(agent.session) === undefined
-        throw new Error(
-          'this session holds no task list yet; call plan_write with the plan, then sign each step off as you finish it' +
-            (unreadable ? ' (this host exposes neither a projection nor a session log to the plugin)' : ''),
-        )
+      const unreadable = readProjected === null && sessionEvents(agent.session) === undefined
+      const signoff = signOffStep(items, args, { unreadable })
+      if (signoff.already === true) {
+        return { message: `Step ${JSON.stringify(signoff.item.content)} was already completed; the list is unchanged.` }
       }
-      const said = String(args?.result ?? '').trim()
-      if (said === '') {
-        throw new Error('`result` is required — state what is now true after finishing this step')
-      }
-      const cited = args?.step ?? args?.step_id ?? ''
-      const at = locate(items, args?.step_id, args?.step, args?.index)
-      if (at === -1) {
-        throw new Error(
-          `${cited === '' ? 'no step was cited and no in_progress item is current' : `step ${JSON.stringify(cited)} matches no task-list item`}; the list is: ${inventory(items)}`,
-        )
-      }
-      if (firstUnfinishedSubStep(items, at) >= 0) {
-        const sub = firstUnfinishedSubStep(items, at)
-        throw new Error(
-          `${JSON.stringify(items[at].content)} is a phase whose sub-steps are unfinished; complete sub-step ` +
-            `${JSON.stringify(items[sub].content)} first, then sign the phase off`,
-        )
-      }
-      const target = items[at]
-      if (target.status === 'completed') {
-        return { message: `Step ${JSON.stringify(target.content)} was already completed; the list is unchanged.` }
-      }
-      if (target.status !== 'in_progress') {
-        const current = currentItem(items)
-        throw new Error(
-          `step ${JSON.stringify(target.content)} is ${target.status}; complete_step only signs the current in_progress item` +
-            (current === undefined
-              ? ' — mark the item you are working on with todo_write first'
-              : ` — finish ${JSON.stringify(current.content)} first`),
-        )
-      }
+      const at = signoff.at
+      const said = signoff.said
+      const target = signoff.item
       // One sign-off per step. The claim is taken before the append and before
       // any await, so a second call in the same parallel batch is refused
       // instead of signing a list the first call already moved.
       const stepSeq = stepSeqOf(sessionEvents(agent.session))
-      if (stepSeq !== null) {
-        if (claimedStep.get(agent.session) === stepSeq) {
-          throw new Error(
-            'only one complete_step per step: a second sign-off in the same batch signs against the list as it stood ' +
-              'before the first one advanced it. Sign the next item in your next step.',
-          )
-        }
-        claimedStep.set(agent.session, stepSeq)
-      }
+      checkClaim(claimedStep.get(agent.session), stepSeq)
+      if (stepSeq !== null) claimedStep.set(agent.session, stepSeq)
       const advanced = advance(items, at)
       // Persist the advance as the same snapshot the shipped tool writes, so
       // the task panel and every log reader see the step close here and now.
@@ -1160,4 +1189,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell, abandonMessage, stepIndex }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell, abandonMessage, stepIndex, signOffStep, checkClaim }

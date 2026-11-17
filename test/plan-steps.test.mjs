@@ -280,3 +280,37 @@ test('touching the plan resets the staleness clock', () => {
   touchPlan(session, 4)
   assert.equal(planClock.get(session).touch, 21)
 })
+
+test('a sign-off refuses the five cases that are not one', () => {
+  const { signOffStep } = __testing
+  const list = [phase('阶段', 'pending'), sub('子一', 'in_progress', 's1'), sub('子二', 'pending', 's2')]
+
+  assert.throws(() => signOffStep(null, { result: 'x' }), /holds no task list yet/)
+  assert.throws(() => signOffStep([], { result: 'x' }, { unreadable: true }), /neither a projection nor a session log/)
+  assert.throws(() => signOffStep(list, { step_id: 's1' }), /`result` is required/)
+  assert.throws(() => signOffStep(list, { step: '不存在', result: 'x' }), /matches no task-list item/)
+  assert.throws(() => signOffStep(list, { step: '阶段', result: 'x' }), /phase whose sub-steps are unfinished/)
+  assert.throws(() => signOffStep(list, { step_id: 's2', result: 'x' }), /only signs the current in_progress item/)
+})
+
+test('a sign-off resolves the cited item and reports an already-completed one', () => {
+  const { signOffStep } = __testing
+  const list = [phase('阶段', 'pending'), sub('子一', 'in_progress', 's1')]
+  const ok = signOffStep(list, { step_id: 's1', result: '做完了' })
+  assert.equal(ok.at, 1)
+  assert.equal(ok.said, '做完了')
+  assert.equal(ok.item.content, '子一')
+
+  const done = [phase('阶段', 'completed')]
+  const already = signOffStep(done, { step: '阶段', result: 'x' })
+  assert.equal(already.already, true)
+  assert.equal(already.item.content, '阶段')
+})
+
+test('a step signs off once', () => {
+  const { checkClaim } = __testing
+  checkClaim(undefined, 7)
+  checkClaim(4, 7)
+  checkClaim(7, null)
+  assert.throws(() => checkClaim(7, 7), /only one complete_step per step/)
+})
