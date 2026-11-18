@@ -100,12 +100,29 @@ const restoreWarned = new WeakSet()
 const PLACEHOLDER_NEED = /^(?:test|testing|todo|tbd|n\/a|none|foo|bar|baz|asdf|xxx)[.!]?$/i
 
 /** One plugin-authored context message: host-authored, so no user bubble. */
-function makeMessage(text) {
+/**
+ * Source names this plugin owns. A message's `kind` is the label the client
+ * prints after "上下文注入 ·", so borrowing the core's `system-prompt` would
+ * attribute our state to the host and merge three different injections into one
+ * name. Namespaced kinds are what other plugins use too.
+ */
+const KIND_TASK_STATE = 'plan-steps:task-state'
+const KIND_STALE = 'plan-steps:stale-check'
+const KIND_LOCK = 'plan-steps:lock'
+const KIND_HOLD = 'plan-steps:turn-stopping'
+
+/**
+ * A host-authored message that rides the next request.
+ * @param text - what the model reads.
+ * @param kind - the source label, one of the KIND_* names above.
+ * @returns the message.
+ */
+function makeMessage(text, kind = KIND_TASK_STATE) {
   return {
     id: randomUUID(),
     role: 'user',
     content: [{ type: 'text', text }],
-    source: { kind: 'system-prompt' },
+    source: { kind },
   }
 }
 
@@ -1286,6 +1303,7 @@ export function apply(ctx, config = {}) {
               'Keep working on it, and call complete_step the moment a step is finished. ' +
               'If you are waiting on the user, call wait_for_user with one line naming what you need — that is what lets ' +
               'the turn end with the item still open. Do not end a turn that still has work you can do.',
+            KIND_HOLD,
           ),
         )
       } catch {
@@ -1320,7 +1338,7 @@ export function apply(ctx, config = {}) {
     const extra = []
     if (!alreadyStated(payload.agent)) {
       const text = renderTaskState(items)
-      if (text !== '') extra.push(makeMessage(text))
+      if (text !== '') extra.push(makeMessage(text, KIND_TASK_STATE))
     }
     if (remindEnabled() || lockEnabled()) {
       const current = stepIndex(sessionEvents(session))
@@ -1345,7 +1363,7 @@ export function apply(ctx, config = {}) {
         if (!lockEnabled()) releaseLock(session)
         else if (lockAnnounced.get(session) !== payload.turn) {
           lockAnnounced.set(session, payload.turn)
-          extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps())))
+          extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps()), KIND_LOCK))
         }
       } else if (staleDue(planClock.get(session), current, options)) {
         // The lock replaces the reminder at the same threshold: one step of
@@ -1353,10 +1371,10 @@ export function apply(ctx, config = {}) {
         if (lockEnabled()) {
           lockedSessions.add(session)
           lockAnnounced.set(session, payload.turn)
-          extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps())))
+          extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps()), KIND_LOCK))
         } else {
           const text = staleReminder(planClock.get(session), current, options)
-          if (text !== undefined) extra.push(makeMessage(text))
+          if (text !== undefined) extra.push(makeMessage(text, KIND_STALE))
         }
         const clock = planClock.get(session)
         if (clock !== undefined) clock.remind = current
