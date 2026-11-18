@@ -658,8 +658,22 @@ function staleReminder(clock, current, options) {
   )
 }
 
-/** Tools that stay callable while the plan is locked, and answer the lock. */
-const LOCK_TOOLS = new Set(['plan_write', 'complete_step', 'wait_for_user', 'abandon_plan', 'unlock_plan'])
+/**
+ * Tools that stay callable while the plan is locked, and answer the lock.
+ *
+ * `run_code` is here because a PTC session reaches every tool through it: the
+ * nested `tools.*` calls inside the script run the same guard, so a `bash` call
+ * there is still refused while `complete_step` gets through. Blocking the runner
+ * instead would freeze the plan's own tools along with everything else.
+ */
+const LOCK_TOOLS = new Set([
+  'plan_write',
+  'complete_step',
+  'wait_for_user',
+  'abandon_plan',
+  'unlock_plan',
+  'run_code',
+])
 
 /**
  * Whether a tool call is refused by the lock. Pulled out so the switch, the
@@ -710,7 +724,8 @@ function lockNotice(open, current, threshold) {
   return (
     `Plan lock: the task list has not changed for about ${threshold} steps and ${open} ${noun} still open.` +
     named +
-    " Only this plan's tools run until one of them answers it: complete_step signs a finished step off, " +
+    " Only this plan's tools run until one of them answers it (run_code stays callable so a PTC session can " +
+    'reach them): complete_step signs a finished step off, ' +
     'wait_for_user hands the turn to the user, plan_write rewrites a list that is wrong, abandon_plan drops it, ' +
     'or unlock_plan records why you cannot account for the list. Every other tool is refused until then.'
   )

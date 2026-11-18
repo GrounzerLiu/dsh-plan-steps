@@ -367,6 +367,7 @@ test('the lock refuses everything but the plan tools, unless the switch is off',
   const { blocksTool, LOCK_TOOLS } = __testing
   assert.equal(blocksTool('bash', true, true), true, 'a locked session refuses an ordinary tool')
   for (const name of LOCK_TOOLS) assert.equal(blocksTool(name, true, true), false, `${name} stays callable`)
+  assert.equal(blocksTool('run_code', true, true), false, 'a PTC session reaches the plan tools through the runner')
   assert.equal(blocksTool('bash', false, true), false, 'an unlocked session runs everything')
   assert.equal(blocksTool('bash', true, false), false, 'turning the switch off must unfreeze')
 })
