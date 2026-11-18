@@ -58,6 +58,9 @@ export const Config = Schema.object({
   restorePanel: Schema.boolean().default(true).volatile(),
   remindStalePlan: Schema.boolean().default(true).volatile(),
   stalePlanSteps: Schema.number().default(20).volatile(),
+  // Off by default: this stops every tool but the plan's own, so it is a
+  // deliberate choice rather than something a user discovers mid-task.
+  lockStalePlan: Schema.boolean().default(false).volatile(),
 })
 
 /** Turns already held once, so a model that will not update its list still ends. */
@@ -68,6 +71,18 @@ const planClock = new WeakMap()
 
 /** Sessions that declared they are waiting on the user this turn. */
 const waitingSessions = new WeakSet()
+
+/**
+ * Sessions whose tools are frozen until the plan is answered. Kept per session
+ * rather than per turn: the point is that the model cannot outrun it by ending
+ * the turn.
+ */
+const lockedSessions = new WeakSet()
+
+/** Let the session run every tool again: the plan was answered. */
+function releaseLock(session) {
+  lockedSessions.delete(session)
+}
 
 /** The turn whose panel snapshot was already re-written, per session. */
 const restoredTurns = new WeakMap()
@@ -591,25 +606,83 @@ function touchPlan(session, step) {
 }
 
 /**
+ * Whether the plan has gone untouched long enough to be worth saying something.
+ * The reminder step doubles as the cooldown, so a model that ignores one is not
+ * nagged on every step that follows.
+ * @param clock - the session's clock, or undefined before the first touch.
+ * @param current - the step index about to run.
+ * @param options - threshold, open count, and whether the turn is waiting.
+ * @returns whether a reminder or a lock is due.
+ */
+function staleDue(clock, current, options) {
+  if (!options.enabled || options.waiting || options.open === 0) return false
+  if (clock === undefined || current === null) return false
+  return current - clock.touch >= options.threshold && current - clock.remind >= options.threshold
+}
+
+/**
  * Whether a stale-plan reminder is due, and which one.
  * @param clock - the session's clock, or undefined before the first touch.
- * @param current - the seq of the step about to run.
+ * @param current - the step index about to run.
  * @param options - threshold, open count, and whether the turn is waiting.
  * @returns the reminder text, or undefined when none is due.
  */
 function staleReminder(clock, current, options) {
-  if (!options.enabled || options.waiting || options.open === 0) return undefined
-  if (clock === undefined || current === null) return undefined
+  if (!staleDue(clock, current, options)) return undefined
   const threshold = options.threshold
-  const sinceTouch = current - clock.touch
-  if (sinceTouch < threshold) return undefined
-  if (current - clock.remind < threshold) return undefined
   const noun = options.open === 1 ? 'item is' : 'items are'
   return (
     `Plan check: the task list has not changed for about ${threshold} steps and ${options.open} ${noun} still open. ` +
     'If a step is finished, call complete_step now; if the list is out of date, rewrite it with plan_write. ' +
     'If you are waiting on the user, call wait_for_user instead of ending the turn silently.'
   )
+}
+
+/** Tools that stay callable while the plan is locked, and answer the lock. */
+const LOCK_TOOLS = new Set(['plan_write', 'complete_step', 'wait_for_user', 'abandon_plan', 'unlock_plan'])
+
+/**
+ * The sentence a locked session reads: what is frozen, and every sanctioned way
+ * out. It is written as an instruction, because a refusal without a way forward
+ * only makes the model retry.
+ * @param open - how many items are still open.
+ * @param current - the current item's text, when there is one.
+ * @param threshold - the step count the lock fired at.
+ * @returns the lock text.
+ */
+function lockNotice(open, current, threshold) {
+  const noun = open === 1 ? 'item is' : 'items are'
+  const named = current === undefined || current === '' ? '' : ` The current one is ${JSON.stringify(current)}.`
+  return (
+    `Plan lock: the task list has not changed for about ${threshold} steps and ${open} ${noun} still open.` +
+    named +
+    " Only this plan's tools run until one of them answers it: complete_step signs a finished step off, " +
+    'wait_for_user hands the turn to the user, plan_write rewrites a list that is wrong, abandon_plan drops it, ' +
+    'or unlock_plan records why you cannot account for the list. Every other tool is refused until then.'
+  )
+}
+
+/**
+ * Whether a rewrite actually says something new. Re-sending the same table is
+ * not an account of the plan, so it must not release the lock.
+ * @param previous - the list before the write, or null.
+ * @param next - the list being written.
+ * @returns true when something changed.
+ */
+function planChanged(previous, next) {
+  const before = previous ?? []
+  const after = next ?? []
+  if (before.length !== after.length) return true
+  return after.some((item, i) => {
+    const old = before[i]
+    if (old === undefined) return true
+    return (
+      old.content !== item.content ||
+      old.status !== item.status ||
+      (old.level ?? 0) !== (item.level ?? 0) ||
+      (old.stepId ?? '') !== (item.stepId ?? '')
+    )
+  })
 }
 
 /**
@@ -727,6 +800,7 @@ export function apply(ctx, config = {}) {
   const holdEnabled = () => readCell(config.holdOpenList, true) !== false
   const restoreEnabled = () => readCell(config.restorePanel, true) !== false
   const remindEnabled = () => readCell(config.remindStalePlan, true) !== false
+  const lockEnabled = () => readCell(config.lockStalePlan, false) === true
   const staleSteps = () => {
     const value = Number(readCell(config.stalePlanSteps, 20))
     return Number.isFinite(value) ? Math.max(2, value) : 20
@@ -812,13 +886,21 @@ export function apply(ctx, config = {}) {
       }
       const problem = validateSerial(items)
       if (problem !== null) throw new Error(problem)
-      const continuity = continuityProblem(listOf(agent.session), items)
+      const previous = listOf(agent.session)
+      const continuity = continuityProblem(previous, items)
       if (continuity !== null) throw new Error(continuity)
       agent.session.append(TODO_WRITE, { todos: snapshotOf(items) })
+      // Re-sending the same table is not an account of the plan, so it leaves
+      // the lock standing and says so.
+      const changed = planChanged(previous, items)
       const done = items.filter((item) => item.status === 'completed').length
       const active = items.filter((item) => item.status === 'in_progress').length
       const pending = items.length - done - active
-      return { message: `Plan updated: ${items.length} items — ${done} completed, ${active} in progress, ${pending} pending.` }
+      if (changed) releaseLock(agent.session)
+      const note = changed ? '' : ' (identical to the previous list, so a plan lock stays in place)'
+      return {
+        message: `Plan updated: ${items.length} items — ${done} completed, ${active} in progress, ${pending} pending.${note}`,
+      }
     },
     presentCall: (args) => ({
       card: 'generic',
@@ -888,6 +970,7 @@ export function apply(ctx, config = {}) {
       // Persist the advance as the same snapshot the shipped tool writes, so
       // the task panel and every log reader see the step close here and now.
       agent.session.append(TODO_WRITE, { todos: snapshotOf(advanced) })
+      releaseLock(agent.session)
       touchPlan(agent.session, stepIndex(sessionEvents(agent.session)))
       const next = currentItem(advanced)
       const remaining = advanced.filter((item) => item.status !== 'completed').length
@@ -959,6 +1042,7 @@ export function apply(ctx, config = {}) {
         )
       }
       waitingSessions.add(agent.session)
+      releaseLock(agent.session)
       return {
         message:
           `Recorded: waiting on the user for ${JSON.stringify(need)}. The task list is kept as it stands, ` +
@@ -1018,6 +1102,7 @@ export function apply(ctx, config = {}) {
       waitingSessions.delete(agent.session)
       heldTurn.delete(agent.session)
       planClock.delete(agent.session)
+      releaseLock(agent.session)
       return { message: abandonMessage(items, reason) }
     },
     presentCall: (args) => ({
@@ -1025,6 +1110,61 @@ export function apply(ctx, config = {}) {
       title: 'Abandon plan',
       kind: 'other',
       content: [{ type: 'text', text: String(args?.reason ?? 'Abandoning the task list.') }],
+    }),
+  })
+
+  ctx.tools.register({
+    name: 'unlock_plan',
+    description:
+      'Release a plan lock without accounting for the list. The lock exists so that work which is finished gets ' +
+      'signed off: if the current step is done, complete_step is the honest answer, and this tool is not. Call it ' +
+      'only when you cannot answer the list right now, and say why in one line — the reason is what the user reads ' +
+      'to judge whether the lock was earned. It changes nothing else: no item is completed, the list is untouched, ' +
+      'and every tool runs again.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'One line saying why the plan cannot be answered now; the user reads it in the transcript.',
+        },
+      },
+      required: ['reason'],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          message: { type: 'string' },
+        },
+        required: ['message'],
+      },
+      render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
+    },
+    execute: async (args, exec) => {
+      const agent = exec.agent
+      if (agent === undefined) throw new Error('unlock_plan requires an owning agent session')
+      const reason = String(args?.reason ?? '').trim()
+      if (reason === '') throw new Error('`reason` is required — say in one line why the list cannot be answered')
+      if (reason.length < 4) {
+        throw new Error('`reason` is too short to be useful; name what you are doing instead of signing off')
+      }
+      const locked = lockedSessions.has(agent.session)
+      releaseLock(agent.session)
+      return {
+        message: locked
+          ? `Unlocked: ${JSON.stringify(reason)}. Every tool runs again; the task list is unchanged and still has ` +
+            'open items, so complete_step is still owed when the work is actually finished.'
+          : `Recorded: ${JSON.stringify(reason)}. The plan was not locked, so nothing changed.`,
+      }
+    },
+    presentCall: (args) => ({
+      card: 'generic',
+      title: 'Unlock plan',
+      kind: 'other',
+      content: [{ type: 'text', text: String(args?.reason ?? 'Unlocking the plan.') }],
     }),
   })
 
@@ -1049,6 +1189,18 @@ export function apply(ctx, config = {}) {
     } catch {
       // Without a usable seam the log scan stays the reader.
     }
+  })
+
+  // Freezing the toolbox is a separate decision from refusing an unsigned
+  // completion, so it gets its own guard and its own switch.
+  ctx.tools.guard((exec) => {
+    const session = exec.agent?.session
+    if (session === undefined || !lockedSessions.has(session)) return undefined
+    if (LOCK_TOOLS.has(exec.name)) return undefined
+    const items = listOf(session) ?? []
+    const open = items.filter((item) => item.status !== 'completed')
+    const current = open.find((item) => item.status === 'in_progress') ?? open[0]
+    return { reason: lockNotice(open.length, current?.content, staleSteps()) }
   })
 
   if (guardEnabled()) {
@@ -1128,7 +1280,7 @@ export function apply(ctx, config = {}) {
       const text = renderTaskState(items)
       if (text !== '') extra.push(makeMessage(text))
     }
-    if (remindEnabled()) {
+    if (remindEnabled() || lockEnabled()) {
       const current = stepIndex(sessionEvents(session))
       // The clock starts when this plugin first sees the session, so a list that
       // was already open counts its staleness from now rather than from a write
@@ -1136,14 +1288,24 @@ export function apply(ctx, config = {}) {
       if (current !== null && planClock.get(session) === undefined) {
         planClock.set(session, { touch: current, remind: -Infinity })
       }
-      const text = staleReminder(planClock.get(session), current, {
-        enabled: remindEnabled(),
+      const open = items.filter((item) => item.status !== 'completed')
+      const options = {
+        enabled: remindEnabled() || lockEnabled(),
         waiting: waitingSessions.has(session),
-        open: items.filter((item) => item.status !== 'completed').length,
+        open: open.length,
         threshold: staleSteps(),
-      })
-      if (text !== undefined) {
-        extra.push(makeMessage(text))
+      }
+      if (staleDue(planClock.get(session), current, options)) {
+        const currentOpen = open.find((item) => item.status === 'in_progress') ?? open[0]
+        // The lock replaces the reminder at the same threshold: one step of
+        // notice, then the toolbox closes until the plan is answered.
+        if (lockEnabled()) {
+          lockedSessions.add(session)
+          extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps())))
+        } else {
+          const text = staleReminder(planClock.get(session), current, options)
+          if (text !== undefined) extra.push(makeMessage(text))
+        }
         const clock = planClock.get(session)
         if (clock !== undefined) clock.remind = current
       }
@@ -1189,4 +1351,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, touchPlan, planClock, readCell, abandonMessage, stepIndex, signOffStep, checkClaim }
+export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, staleDue, lockNotice, planChanged, LOCK_TOOLS, lockedSessions, releaseLock, touchPlan, planClock, readCell, abandonMessage, stepIndex, signOffStep, checkClaim }

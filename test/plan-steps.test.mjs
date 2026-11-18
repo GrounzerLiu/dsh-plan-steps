@@ -314,3 +314,51 @@ test('a step signs off once', () => {
   checkClaim(7, null)
   assert.throws(() => checkClaim(7, 7), /only one complete_step per step/)
 })
+
+test('a stale plan is due once per threshold, and a waiting turn is never due', () => {
+  const { staleDue } = __testing
+  const clock = { touch: 10, remind: -Infinity }
+  const base = { enabled: true, waiting: false, open: 2, threshold: 20 }
+  assert.equal(staleDue(clock, 29, base), false, 'below the threshold')
+  assert.equal(staleDue(clock, 30, base), true, 'at the threshold')
+  assert.equal(staleDue({ touch: 10, remind: 30 }, 45, base), false, 'inside the cooldown')
+  assert.equal(staleDue(clock, 51, base), true, 'the cooldown has passed')
+  assert.equal(staleDue(clock, 99, { ...base, waiting: true }), false, 'a waiting turn is exempt')
+  assert.equal(staleDue(clock, 99, { ...base, open: 0 }), false, 'nothing open to answer')
+  assert.equal(staleDue(clock, 99, { ...base, enabled: false }), false, 'switched off')
+  assert.equal(staleDue(undefined, 99, base), false, 'no clock yet')
+  assert.equal(staleDue(clock, null, base), false, 'no step index')
+})
+
+test('the lock notice names the current item and every way out', () => {
+  const { lockNotice, LOCK_TOOLS } = __testing
+  const text = lockNotice(3, '写测试', 20)
+  assert.match(text, /^Plan lock: /)
+  assert.match(text, /20 steps/)
+  assert.match(text, /3 items are/)
+  assert.match(text, /"写测试"/)
+  for (const tool of ['complete_step', 'wait_for_user', 'plan_write', 'abandon_plan', 'unlock_plan']) {
+    assert.match(text, new RegExp(tool), `${tool} must be offered as an exit`)
+    assert.equal(LOCK_TOOLS.has(tool), true)
+  }
+  assert.equal(lockNotice(1, undefined, 8).includes('The current one is'), false, 'no current item, no phrase')
+})
+
+test('an identical rewrite is not an account, any real change is', () => {
+  const { planChanged } = __testing
+  const before = [phase('阶段', 'pending'), sub('子一', 'in_progress', 's1')]
+  assert.equal(planChanged(before, structuredClone(before)), false, 'same content, same order')
+  assert.equal(planChanged(before, [phase('阶段', 'pending'), sub('子一', 'completed', 's1')]), true, 'status moved')
+  assert.equal(planChanged(before, [phase('阶段二', 'pending'), sub('子一', 'in_progress', 's1')]), true, 'text moved')
+  assert.equal(planChanged(before, [phase('阶段', 'pending')]), true, 'length moved')
+  assert.equal(planChanged(null, before), true, 'first write')
+})
+
+test('a lock is released by answering it, and only then', () => {
+  const { lockedSessions, releaseLock } = __testing
+  const session = {}
+  lockedSessions.add(session)
+  assert.equal(lockedSessions.has(session), true)
+  releaseLock(session)
+  assert.equal(lockedSessions.has(session), false)
+})

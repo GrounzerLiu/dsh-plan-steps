@@ -421,6 +421,8 @@ window.__ModuleLoader__.load({
         remindHint: '连续若干步没碰计划、且还有未完成项时，往请求里塞一句提醒',
         steps: '提醒阈值（步）',
         stepsHint: '多少步算久未更新，也是两次提醒之间的最小间隔',
+        lock: '超时锁定工具',
+        lockHint: '到达阈值时冻结除本插件外的全部工具，只留签核、等待、重写、放弃和解锁；解锁必须写明理由（默认关闭）',
       },
       en: {
         title: 'Plan steps',
@@ -434,6 +436,8 @@ window.__ModuleLoader__.load({
         remindHint: 'After N steps without touching the list, the request carries a reminder',
         steps: 'Stale reminder threshold (steps)',
         stepsHint: 'How many steps count as stale, and the gap between reminders',
+        lock: 'Lock tools when the plan goes stale',
+        lockHint: "At the threshold, freeze every tool but this plugin's own: sign off, wait, rewrite, abandon, or unlock with a written reason (off by default)",
       },
     }
 
@@ -443,6 +447,7 @@ window.__ModuleLoader__.load({
       ['restorePanel', 'restore', 'restoreHint', 'switch'],
       ['remindStalePlan', 'remind', 'remindHint', 'switch'],
       ['stalePlanSteps', 'steps', 'stepsHint', 'number'],
+      ['lockStalePlan', 'lock', 'lockHint', 'switch'],
     ]
 
     /** The settings rows: a switch per rule, a number for the threshold. */
