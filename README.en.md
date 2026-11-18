@@ -22,6 +22,7 @@ plugin is a rewrite against DSH's event and slot model, not a port.
 | turn hold | Steers the turn back when it is about to close with open items — once per turn. |
 | `wait_for_user` | Declares a wait, so that turn may end with the item open. |
 | `abandon_plan` | Drops the current plan: the list clears, the panel disappears, and the required `reason` stays in the transcript. The only write that bypasses the rewrite continuity rules. |
+| `unlock_plan` | Releases a stale-plan lock: it records why the list cannot be answered and lets every tool run again. It completes nothing and leaves the list untouched. |
 | request state | Carries the host list into the request when the visible window has lost it. |
 | dock panel | Replaces the pinned task panel with the current item name and `已完成 N / M` + a segmented bar, expanded into a nested list. |
 | step row | The same position on every `complete_step` tool row. |
@@ -107,7 +108,7 @@ dsh plugin --profile desktop add github:GrounzerLiu/dsh-plan-steps
 ```
 
 The bundle inserts one row, `include:plan-steps`, and puts `plan_write`,
-`plan_write`, `complete_step`, `wait_for_user` and `abandon_plan` into the model's toolset.
+`plan_write`, `complete_step`, `wait_for_user`, `abandon_plan` and `unlock_plan` into the model's toolset.
 
 **The `client:` half needs a tarball / git install.** With `link:` the Web host
 cannot serve `/plugins/<id>/client.js` (the path resolves outside the profile and
@@ -144,8 +145,36 @@ before removal stay in the session log and remain readable by the shipped tool.
 node --test test/
 ```
 
-Nineteen cases: the five two-level advancement positions, the three rewrite
-continuity rules, serial validation, call replay.
+Thirty-six cases: the five two-level advancement positions, the three rewrite
+continuity rules, serial validation, call replay, and the stale-lock decisions.
+
+## Stale-plan lock (off by default)
+
+When the list has gone untouched for the configured number of steps and items are
+still open, the plugin normally injects a reminder. Turn on **Lock tools when the
+plan goes stale** and the same threshold freezes every tool instead:
+
+```
+20 steps without a plan update -> locked -> only this plugin's five tools run
+```
+
+A refused call comes back with the current item, how many items are open, and every
+way out. Any of the five tools **that succeeds** releases the lock and resets the
+clock:
+
+| Call | What it says |
+| --- | --- |
+| `complete_step` | This step is finished |
+| `wait_for_user` | I am blocked on the user |
+| `plan_write` | The list is wrong, here is the corrected one (a rewrite with no change does not count) |
+| `abandon_plan` | The list is void |
+| `unlock_plan` | I cannot account for the list — here is why |
+
+A call that fails — the wrong item, a rejected rewrite — releases nothing.
+
+The point is not to trap a model but to make the permissive path explicit: when the
+work is actually finished, no reason for not answering the list holds up, so the
+model either signs off or writes down something the user will read.
 
 ## Troubleshooting
 

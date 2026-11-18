@@ -102,6 +102,33 @@ Checked in a live session:
 - The steering message is recorded with `source.kind: 'system-prompt'`.
 - The next step's request carried the host task state block.
 
+## The stale-plan lock
+
+The reminder is advice; some models ignore it and sign the whole list off at the
+end. The lock is the second step of the same mechanism, at the same threshold, and
+off by default because it stops ordinary work: every tool but this plugin's five is
+refused until the list is answered.
+
+Two details carry the design:
+
+- **Only a successful call releases it.** The guard runs before execution and
+  cannot know the outcome, so the release lives in each tool's success path; a
+  rejected sign-off or a refused rewrite leaves the lock standing. Otherwise a
+  model could clear the lock by calling `complete_step` with a wrong item.
+- **A rewrite has to say something.** `plan_write` that re-sends the same table
+  satisfies the continuity rules, so it would be a free exit; `planChanged` compares
+  the snapshot and keeps the lock when nothing moved, and the tool says so.
+
+`unlock_plan` exists so that the honest escape is cheaper than a lie: it requires a
+reason, changes nothing, and puts that reason in the transcript. The design bet is
+not that a model cannot lie — it can — but that a written reason is read, while a
+batch sign-off at the end is silent.
+
+Verified live (0.1.24, `dsh web`, threshold 2): a session that ran two commands
+without touching the list got the lock message at the third step, and its next
+`bash` call came back as `Error: Plan lock: ...` in the session log; a second run
+that was told to keep calling `bash` regardless recorded the same refusal twice.
+
 ## Deliberate non-goals
 
 Three things a fuller implementation would have are left out on purpose. Each
