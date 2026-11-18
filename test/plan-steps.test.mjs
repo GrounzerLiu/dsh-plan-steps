@@ -362,3 +362,25 @@ test('a lock is released by answering it, and only then', () => {
   releaseLock(session)
   assert.equal(lockedSessions.has(session), false)
 })
+
+test('the lock refuses everything but the plan tools, unless the switch is off', () => {
+  const { blocksTool, LOCK_TOOLS } = __testing
+  assert.equal(blocksTool('bash', true, true), true, 'a locked session refuses an ordinary tool')
+  for (const name of LOCK_TOOLS) assert.equal(blocksTool(name, true, true), false, `${name} stays callable`)
+  assert.equal(blocksTool('bash', false, true), false, 'an unlocked session runs everything')
+  assert.equal(blocksTool('bash', true, false), false, 'turning the switch off must unfreeze')
+})
+
+test('a failure inside an allowed tool explains the lock, and only while locked', async () => {
+  const { withLockNote, lockedSessions } = __testing
+  const session = {}
+  const failing = withLockNote(async () => {
+    throw new Error('step "x" matches no task-list item')
+  })
+  await assert.rejects(() => failing({}, { agent: { session } }), /matches no task-list item$/, 'unlocked: unchanged')
+  lockedSessions.add(session)
+  await assert.rejects(() => failing({}, { agent: { session } }), /the plan lock is still in place/)
+  const ok = withLockNote(async () => ({ message: 'fine' }))
+  assert.deepEqual(await ok({}, { agent: { session } }), { message: 'fine' })
+  lockedSessions.delete(session)
+})

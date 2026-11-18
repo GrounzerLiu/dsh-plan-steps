@@ -84,6 +84,9 @@ function releaseLock(session) {
   lockedSessions.delete(session)
 }
 
+/** The turn in which the lock was last announced, per session. */
+const lockAnnounced = new WeakMap()
+
 /** The turn whose panel snapshot was already re-written, per session. */
 const restoredTurns = new WeakMap()
 
@@ -642,6 +645,40 @@ function staleReminder(clock, current, options) {
 const LOCK_TOOLS = new Set(['plan_write', 'complete_step', 'wait_for_user', 'abandon_plan', 'unlock_plan'])
 
 /**
+ * Whether a tool call is refused by the lock. Pulled out so the switch, the
+ * allow list and the guard cannot drift apart: turning the switch off must
+ * release a session that is already frozen, not leave it stuck.
+ * @param name - the tool being called.
+ * @param locked - whether the session is locked right now.
+ * @param enabled - whether the lock switch is on right now.
+ * @returns true when the call must be refused.
+ */
+function blocksTool(name, locked, enabled) {
+  if (!locked || !enabled) return false
+  return !LOCK_TOOLS.has(name)
+}
+
+/**
+ * Add the lock state to a failure inside an allowed tool. The guard cannot see
+ * an outcome, so a rejected sign-off would otherwise read as "wrong item" and
+ * the model would retry into the same wall.
+ * @param execute - a tool's execute function.
+ * @returns a wrapped execute that explains the lock on failure.
+ */
+function withLockNote(execute) {
+  return async (args, exec) => {
+    try {
+      return await execute(args, exec)
+    } catch (error) {
+      const session = exec?.agent?.session
+      const message = error instanceof Error ? error.message : String(error)
+      if (session === undefined || !lockedSessions.has(session) || /plan lock/i.test(message)) throw error
+      throw new Error(`${message} (the plan lock is still in place: a failed call does not release it)`)
+    }
+  }
+}
+
+/**
  * The sentence a locked session reads: what is frozen, and every sanctioned way
  * out. It is written as an instruction, because a refusal without a way forward
  * only makes the model retry.
@@ -854,7 +891,7 @@ export function apply(ctx, config = {}) {
       },
       render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
     },
-    execute: async (args, exec) => {
+    execute: withLockNote(async (args, exec) => {
       const agent = exec.agent
       if (agent === undefined) throw new Error('plan_write requires an owning agent session')
       const raw = args?.todos
@@ -901,7 +938,7 @@ export function apply(ctx, config = {}) {
       return {
         message: `Plan updated: ${items.length} items — ${done} completed, ${active} in progress, ${pending} pending.${note}`,
       }
-    },
+    }),
     presentCall: (args) => ({
       card: 'generic',
       title: 'Update plan',
@@ -948,7 +985,7 @@ export function apply(ctx, config = {}) {
       },
       render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
     },
-    execute: async (args, exec) => {
+    execute: withLockNote(async (args, exec) => {
       const agent = exec.agent
       if (agent === undefined) throw new Error('complete_step requires an owning agent session')
       const items = listOf(agent.session)
@@ -984,7 +1021,7 @@ export function apply(ctx, config = {}) {
         // the list length and a reader must not compute it.
         message: `Step ${JSON.stringify(target.content)} done: ${said} ${tail} (${remaining} open of ${advanced.length})`,
       }
-    },
+    }),
     presentCall: (args) => ({
       card: 'generic',
       title: 'Complete step',
@@ -1030,7 +1067,7 @@ export function apply(ctx, config = {}) {
       },
       render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
     },
-    execute: async (args, exec) => {
+    execute: withLockNote(async (args, exec) => {
       const agent = exec.agent
       if (agent === undefined) throw new Error('wait_for_user requires an owning agent session')
       const need = String(args?.need ?? '').trim()
@@ -1048,7 +1085,7 @@ export function apply(ctx, config = {}) {
           `Recorded: waiting on the user for ${JSON.stringify(need)}. The task list is kept as it stands, ` +
           'and the host will not pull this turn back for it.',
       }
-    },
+    }),
     presentCall: (args) => ({
       card: 'generic',
       title: 'Waiting on you',
@@ -1086,7 +1123,7 @@ export function apply(ctx, config = {}) {
       },
       render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
     },
-    execute: async (args, exec) => {
+    execute: withLockNote(async (args, exec) => {
       const agent = exec.agent
       if (agent === undefined) throw new Error('abandon_plan requires an owning agent session')
       const reason = String(args?.reason ?? '').trim()
@@ -1104,7 +1141,7 @@ export function apply(ctx, config = {}) {
       planClock.delete(agent.session)
       releaseLock(agent.session)
       return { message: abandonMessage(items, reason) }
-    },
+    }),
     presentCall: (args) => ({
       card: 'generic',
       title: 'Abandon plan',
@@ -1143,7 +1180,7 @@ export function apply(ctx, config = {}) {
       },
       render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
     },
-    execute: async (args, exec) => {
+    execute: withLockNote(async (args, exec) => {
       const agent = exec.agent
       if (agent === undefined) throw new Error('unlock_plan requires an owning agent session')
       const reason = String(args?.reason ?? '').trim()
@@ -1159,7 +1196,7 @@ export function apply(ctx, config = {}) {
             'open items, so complete_step is still owed when the work is actually finished.'
           : `Recorded: ${JSON.stringify(reason)}. The plan was not locked, so nothing changed.`,
       }
-    },
+    }),
     presentCall: (args) => ({
       card: 'generic',
       title: 'Unlock plan',
@@ -1196,7 +1233,12 @@ export function apply(ctx, config = {}) {
   ctx.tools.guard((exec) => {
     const session = exec.agent?.session
     if (session === undefined || !lockedSessions.has(session)) return undefined
-    if (LOCK_TOOLS.has(exec.name)) return undefined
+    // Turning the switch off must unfreeze a session that is already locked,
+    // otherwise it stays stuck with no way back.
+    if (!blocksTool(exec.name, true, lockEnabled())) {
+      if (!lockEnabled()) releaseLock(session)
+      return undefined
+    }
     const items = listOf(session) ?? []
     const open = items.filter((item) => item.status !== 'completed')
     const current = open.find((item) => item.status === 'in_progress') ?? open[0]
@@ -1289,18 +1331,28 @@ export function apply(ctx, config = {}) {
         planClock.set(session, { touch: current, remind: -Infinity })
       }
       const open = items.filter((item) => item.status !== 'completed')
+      const currentOpen = open.find((item) => item.status === 'in_progress') ?? open[0]
       const options = {
         enabled: remindEnabled() || lockEnabled(),
         waiting: waitingSessions.has(session),
         open: open.length,
         threshold: staleSteps(),
       }
-      if (staleDue(planClock.get(session), current, options)) {
-        const currentOpen = open.find((item) => item.status === 'in_progress') ?? open[0]
+      // A lock outlives the turn that earned it, so the first step of every
+      // later turn says it is still on instead of letting the model discover it
+      // by running into a refusal.
+      if (lockedSessions.has(session)) {
+        if (!lockEnabled()) releaseLock(session)
+        else if (lockAnnounced.get(session) !== payload.turn) {
+          lockAnnounced.set(session, payload.turn)
+          extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps())))
+        }
+      } else if (staleDue(planClock.get(session), current, options)) {
         // The lock replaces the reminder at the same threshold: one step of
         // notice, then the toolbox closes until the plan is answered.
         if (lockEnabled()) {
           lockedSessions.add(session)
+          lockAnnounced.set(session, payload.turn)
           extra.push(makeMessage(lockNotice(open.length, currentOpen?.content, staleSteps())))
         } else {
           const text = staleReminder(planClock.get(session), current, options)
@@ -1351,4 +1403,4 @@ export function apply(ctx, config = {}) {
 }
 
 /** Pure helpers, exposed for the regression tests in test/. */
-export const __testing = { normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, staleDue, lockNotice, planChanged, LOCK_TOOLS, lockedSessions, releaseLock, touchPlan, planClock, readCell, abandonMessage, stepIndex, signOffStep, checkClaim }
+export const __testing = { blocksTool, withLockNote, normalize, locate, advance, replayCalls, renderTaskState, stepSeqOf, parseTodos, validateSerial, segmentsOf, firstUnfinishedSubStep, continuityProblem, snapshotOf, toItem, unsignedCompletion, staleReminder, staleDue, lockNotice, planChanged, LOCK_TOOLS, lockedSessions, releaseLock, touchPlan, planClock, readCell, abandonMessage, stepIndex, signOffStep, checkClaim }
