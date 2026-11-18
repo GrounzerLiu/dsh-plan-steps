@@ -1,6 +1,6 @@
 {
   "name": "dsh-plan-steps",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "type": "module",
   "description": "Host-owned plan steps: two-level task lists with stable step ids, one sign-off path, and a plan panel.",
   "exports": {
@@ -45,6 +45,9 @@
     "agent"
   ],
   "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.19.0"
+  },
+  "peerDependencies": {
     "@deepseek-ai/schemastery": "^3.19.0"
   }
 }
