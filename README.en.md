@@ -127,7 +127,7 @@ the Plugin Manager and press Configure.
 | Pull a turn back while items are open | on | off: a turn may end with the list still open |
 | Rebuild the panel snapshot each turn | on | off: after `turn/start` the panel waits for the model's next write |
 | Remind when the plan goes stale | on | after N steps without touching the list, the request carries a "keep the plan moving" note |
-| Stale reminder threshold (steps) | 20 | how many steps count as stale, and the minimum gap between reminders |
+| Stale reminder threshold (steps) | 8 | how many steps count as stale, and the minimum gap between reminders |
 
 The same fields can be set under the row's `config` in the profile's
 `cordis.patch.yml` as deployment defaults; the plugin page wins. The tools stay
@@ -155,7 +155,7 @@ still open, the plugin normally injects a reminder. Turn on **Lock tools when th
 plan goes stale** and the same threshold freezes every tool instead:
 
 ```
-20 steps without a plan update -> locked -> only this plugin's five tools run (plus run_code, the PTC channel)
+8 steps without a plan update -> locked -> only this plugin's five tools run (plus run_code, the PTC channel)
 ```
 
 A refused call comes back with the current item, how many items are open, and every

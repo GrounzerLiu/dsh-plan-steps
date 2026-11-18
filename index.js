@@ -57,7 +57,7 @@ export const Config = Schema.object({
   holdOpenList: Schema.boolean().default(true).volatile(),
   restorePanel: Schema.boolean().default(true).volatile(),
   remindStalePlan: Schema.boolean().default(true).volatile(),
-  stalePlanSteps: Schema.number().default(20).volatile(),
+  stalePlanSteps: Schema.number().default(8).volatile(),
   // Off by default: this stops every tool but the plan's own, so it is a
   // deliberate choice rather than something a user discovers mid-task.
   lockStalePlan: Schema.boolean().default(false).volatile(),
@@ -871,8 +871,8 @@ export function apply(ctx, config = {}) {
   const remindEnabled = () => readCell(config.remindStalePlan, true) !== false
   const lockEnabled = () => readCell(config.lockStalePlan, false) === true
   const staleSteps = () => {
-    const value = Number(readCell(config.stalePlanSteps, 20))
-    return Number.isFinite(value) ? Math.max(2, value) : 20
+    const value = Number(readCell(config.stalePlanSteps, 8))
+    return Number.isFinite(value) ? Math.max(2, value) : 8
   }
 
   // The plan writer. The shipped `todo_write` stores a flat name list; a

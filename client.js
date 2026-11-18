@@ -476,7 +476,7 @@ window.__ModuleLoader__.load({
                   type: 'number',
                   min: 2,
                   step: 1,
-                  value: String(Number(value[key]) || 20),
+                  value: String(Number(value[key]) || 8),
                   disabled,
                   onChange: (event) => {
                     const next = Number(event.target.value)
