@@ -106,8 +106,9 @@ Checked in a live session:
 
 The reminder is advice; some models ignore it and sign the whole list off at the
 end. The lock is the second step of the same mechanism, at the same threshold, and
-off by default because it stops ordinary work: every tool but this plugin's five is
-refused until the list is answered.
+off by default because it stops ordinary work: every tool but this plugin's five —
+and `run_code`, the transport a PTC session uses to reach them — is refused until the
+list is answered.
 
 Two details carry the design:
 

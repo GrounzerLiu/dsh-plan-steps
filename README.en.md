@@ -155,12 +155,16 @@ still open, the plugin normally injects a reminder. Turn on **Lock tools when th
 plan goes stale** and the same threshold freezes every tool instead:
 
 ```
-20 steps without a plan update -> locked -> only this plugin's five tools run
+20 steps without a plan update -> locked -> only this plugin's five tools run (plus run_code, the PTC channel)
 ```
 
 A refused call comes back with the current item, how many items are open, and every
 way out. Any of the five tools **that succeeds** releases the lock and resets the
 clock:
+
+A PTC session reaches every tool through `run_code`, so the runner itself stays
+callable: nested `tools.*` calls run the same guard, which still refuses `bash` there
+while `complete_step` gets through.
 
 | Call | What it says |
 | --- | --- |
