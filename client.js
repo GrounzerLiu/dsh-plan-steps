@@ -35,6 +35,28 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Motion for the panel: the list grows and shrinks by animating a grid row
+     * from 0fr to 1fr, which needs no measuring; the two disclosure glyphs
+     * cross-fade inside one 18px box. Both are plain CSS so a theme that
+     * disables transitions still wins, and a reduced-motion user gets none.
+     */
+    const MOTION_ID = 'plan-steps-motion'
+    const MOTION_CSS = [
+      '.plan-steps-shell{transition:grid-template-rows 180ms cubic-bezier(.2,0,0,1),opacity 160ms ease}',
+      '.plan-steps-glyph{position:absolute;inset:0;display:grid;place-items:center;',
+      'transition:opacity 160ms ease,transform 160ms cubic-bezier(.2,0,0,1)}',
+      '@media (prefers-reduced-motion:reduce){.plan-steps-shell,.plan-steps-glyph{transition:none}}',
+    ].join('')
+
+    function ensureMotionStyles() {
+      if (typeof document === 'undefined' || document.getElementById(MOTION_ID) !== null) return
+      const tag = document.createElement('style')
+      tag.id = MOTION_ID
+      tag.textContent = MOTION_CSS
+      document.head.appendChild(tag)
+    }
+
     // Material Symbols (google/material-design-icons, Apache-2.0), inlined as
     // path data so the panel renders offline.
     const ICONS = {
@@ -241,13 +263,48 @@ window.__ModuleLoader__.load({
             h(Bar, { items: todos, index }),
             h(
               'span',
-              { 'aria-hidden': true, style: { color: TOKENS.secondary, display: 'grid' } },
-              h(Icon, { name: open ? 'unfoldLess' : 'unfoldMore', size: 18 }),
+              {
+                'aria-hidden': true,
+                style: {
+                  color: TOKENS.secondary,
+                  position: 'relative',
+                  width: '18px',
+                  height: '18px',
+                  flex: 'none',
+                },
+              },
+              h(
+                'span',
+                { className: 'plan-steps-glyph', style: { opacity: open ? 0 : 1, transform: open ? 'scale(.7)' : 'none' } },
+                h(Icon, { name: 'unfoldMore', size: 18 }),
+              ),
+              h(
+                'span',
+                {
+                  className: 'plan-steps-glyph',
+                  style: { opacity: open ? 1 : 0, transform: open ? 'none' : 'scale(.7)' },
+                },
+                h(Icon, { name: 'unfoldLess', size: 18 }),
+              ),
             ),
           ),
         ),
-        open
-          ? h(
+        ensureMotionStyles(),
+        // Kept mounted so the row can animate on close as well as open: the
+        // grid row goes 0fr -> 1fr, and the collapsed shell is inert.
+        h(
+          'div',
+          {
+            className: 'plan-steps-shell',
+            'aria-hidden': !open,
+            style: {
+              display: 'grid',
+              gridTemplateRows: open ? '1fr' : '0fr',
+              opacity: open ? 1 : 0,
+              pointerEvents: open ? 'auto' : 'none',
+            },
+          },
+          h('div', { style: { overflow: 'hidden', minHeight: 0, display: 'grid' } }, h(
               'ul',
               {
                 style: {
@@ -328,8 +385,8 @@ window.__ModuleLoader__.load({
                   ),
                 )
               }),
-            )
-          : null,
+            )),
+        ),
       )
     }
 
