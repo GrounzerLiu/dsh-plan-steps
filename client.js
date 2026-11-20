@@ -44,9 +44,8 @@ window.__ModuleLoader__.load({
     const MOTION_ID = 'plan-steps-motion'
     const MOTION_CSS = [
       '.plan-steps-shell{transition:grid-template-rows 180ms cubic-bezier(.2,0,0,1),opacity 160ms ease}',
-      '.plan-steps-glyph{position:absolute;inset:0;display:grid;place-items:center;',
-      'transition:opacity 160ms ease,transform 160ms cubic-bezier(.2,0,0,1)}',
-      '@media (prefers-reduced-motion:reduce){.plan-steps-shell,.plan-steps-glyph{transition:none}}',
+      '.plan-steps-chevron{transition:transform 180ms cubic-bezier(.2,0,0,1)}',
+      '@media (prefers-reduced-motion:reduce){.plan-steps-shell,.plan-steps-chevron{transition:none}}',
     ].join('')
 
     function ensureMotionStyles() {
@@ -64,13 +63,10 @@ window.__ModuleLoader__.load({
         'M222-200 80-342l56-56 85 85 170-170 56 57-225 226Zm0-320L80-662l56-56 85 85 170-170 56 57-225 226Zm298 240v-80h360v80H520Zm0-320v-80h360v80H520Z',
       check:
         'm424-408-86-86q-11-11-28-11t-28 11q-11 11-11 28t11 28l114 114q12 12 28 12t28-12l226-226q11-11 11-28t-11-28q-11-11-28-11t-28 11L424-408Zm56 328q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Z',
-      // unfold_more / unfold_less: the Material Symbols "disclosure" pair. The
-      // single chevron read as a generic arrow; the doubled chevrons say
-      // explicitly that the list unfolds / folds, so the affordance is clear.
-      unfoldMore:
-        'M480-120 300-300l44-44 136 136 136-136 44 44-180 180ZM344-612l-44-44 180-180 180 180-44 44-136-136-136 136Z',
-      unfoldLess:
-        'm343-160-43-43 180-180 180 180-43 43-137-137-137 137Zm137-417L300-757l43-43 137 137 137-137 43 43-180 180Z',
+      // One chevron, rotated by the panel: it points up while the list is
+      // folded and swings down as the list unfolds, so the icon moves with the
+      // content instead of being swapped for a second glyph.
+      chevronDown: 'M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z',
       arrow: 'm560-240-56-58 142-142H160v-80h486L504-662l56-58 240 240-240 240Z',
     }
 
@@ -265,27 +261,15 @@ window.__ModuleLoader__.load({
               'span',
               {
                 'aria-hidden': true,
+                className: 'plan-steps-chevron',
                 style: {
                   color: TOKENS.secondary,
-                  position: 'relative',
-                  width: '18px',
-                  height: '18px',
+                  display: 'grid',
                   flex: 'none',
+                  transform: open ? 'rotate(0deg)' : 'rotate(180deg)',
                 },
               },
-              h(
-                'span',
-                { className: 'plan-steps-glyph', style: { opacity: open ? 0 : 1, transform: open ? 'scale(.7)' : 'none' } },
-                h(Icon, { name: 'unfoldMore', size: 18 }),
-              ),
-              h(
-                'span',
-                {
-                  className: 'plan-steps-glyph',
-                  style: { opacity: open ? 1 : 0, transform: open ? 'none' : 'scale(.7)' },
-                },
-                h(Icon, { name: 'unfoldLess', size: 18 }),
-              ),
+              h(Icon, { name: 'chevronDown', size: 18 }),
             ),
           ),
         ),
